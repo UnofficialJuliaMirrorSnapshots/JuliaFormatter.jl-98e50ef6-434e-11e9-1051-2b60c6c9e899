@@ -35,6 +35,10 @@ empty_start(x::PTree) = x.startline == 1 && x.endline == 1 && x.val == ""
 is_punc(x) = CSTParser.ispunctuation(x)
 is_end(x) = x.typ === CSTParser.KEYWORD && x.val == "end"
 
+is_colon_op(x) =
+    (x.typ === CSTParser.BinaryOpCall && x.args[2].kind === Tokens.COLON) ||
+    x.typ === CSTParser.ColonOpCall
+
 function parent_is(x, typs...)
     p = x.parent
     p === nothing && return false
@@ -194,6 +198,8 @@ function pretty(x::CSTParser.EXPR, s::State)
         return p_if(x, s)
     elseif x.typ === CSTParser.Try
         return p_try(x, s)
+    elseif x.typ === CSTParser.TopLevel
+        return p_toplevel(x, s)
     elseif x.typ === CSTParser.Begin
         return p_begin(x, s)
     elseif x.typ === CSTParser.Quote
@@ -699,6 +705,20 @@ function p_vardef(x, s)
     t
 end
 
+# TopLevel
+function p_toplevel(x, s)
+    t = PTree(x, nspaces(s))
+    for a in x.args
+        if a.kind === Tokens.NOTHING
+            s.offset += a.fullspan
+            continue
+        end
+        add_node!(t, pretty(a, s), max_padding = s.indent_size)
+        add_node!(t, Semicolon())
+    end
+    t
+end
+
 # Begin
 function p_begin(x, s)
     t = PTree(x, nspaces(s))
@@ -781,11 +801,49 @@ function p_let(x, s)
     t
 end
 
+
+
+# Transforms
+#
+# for i = iter body end
+#
+# =>
+#
+# for i in iter body end
+#
+# AND
+#
+# for i in 1:10 body end
+#
+# =>
+#
+# for i = 1:10 body end
+#
+# https://github.com/domluna/JuliaFormatter.jl/issues/34
+function eq_to_in_normalization!(x)
+    if x.typ === CSTParser.BinaryOpCall
+        op = x.args[2]
+        arg2 = x.args[3]
+        if op.kind === Tokens.EQ && !is_colon_op(arg2)
+            x.args[2].kind = Tokens.IN
+        elseif op.kind === Tokens.IN && is_colon_op(arg2)
+            x.args[2].kind = Tokens.EQ
+        end
+    elseif x.typ === CSTParser.Block || x.typ === CSTParser.InvisBrackets
+        for a in x.args
+            eq_to_in_normalization!(a)
+        end
+    end
+end
+
 # For/While
 function p_loop(x, s)
     t = PTree(x, nspaces(s))
     add_node!(t, pretty(x.args[1], s))
     add_node!(t, Whitespace(1))
+    if x.args[1].kind === Tokens.FOR
+        eq_to_in_normalization!(x.args[2])
+    end
     add_node!(t, pretty(x.args[2], s), join_lines = true)
     s.indent += s.indent_size
     add_node!(
@@ -964,7 +1022,7 @@ block_type(x::CSTParser.EXPR) =
     x.typ === CSTParser.If ||
     x.typ === CSTParser.Do ||
     x.typ === CSTParser.Begin ||
-    x.typ === CSTParser.Quote ||
+    (x.typ === CSTParser.Quote && x.args[1].kind === Tokens.QUOTE) ||
     x.typ === CSTParser.Try ||
     x.typ === CSTParser.For || x.typ === CSTParser.While || x.typ === CSTParser.Let
 
@@ -1409,6 +1467,14 @@ function p_comprehension(x, s)
     for (i, a) in enumerate(x)
         if a.typ === CSTParser.KEYWORD
             add_node!(t, Whitespace(1))
+            add_node!(t, pretty(a, s), join_lines = true)
+            add_node!(t, Whitespace(1))
+            if a.kind === Tokens.FOR
+                for j = i+1:length(x)
+                    eq_to_in_normalization!(x.args[j])
+                end
+            end
+        elseif CSTParser.is_comma(a) && i < length(x) && !is_punc(x.args[i+1])
             add_node!(t, pretty(a, s), join_lines = true)
             add_node!(t, Whitespace(1))
         else

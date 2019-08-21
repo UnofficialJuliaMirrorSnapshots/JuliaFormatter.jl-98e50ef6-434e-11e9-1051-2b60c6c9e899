@@ -35,6 +35,90 @@ end
         @test fmt(str) == str
     end
 
+    @testset "toplevel" begin
+        str = """
+
+        hello = "string";
+
+        a = 10;
+
+
+        c = 50;"""
+        @test fmt(str) == str
+        t = run_pretty(str, 80)
+        @test length(t) == 17
+    end
+
+    @testset "for = vs in normalization" begin
+        str = """
+        for i = 1:n
+            println(i)
+        end"""
+        @test fmt(str) == str
+
+        str = """
+        for i in itr
+            println(i)
+        end"""
+        @test fmt(str) == str
+
+        str = """
+        for i = 1:n
+            println(i)
+        end"""
+        str_ = """
+        for i in 1:n
+            println(i)
+        end"""
+        @test fmt(str) == str
+
+        str = """
+        for i in itr
+            println(i)
+        end"""
+        str_ = """
+        for i = itr
+            println(i)
+        end"""
+        @test fmt(str_) == str
+
+        str_ = """
+        for i = I1, j in I2
+            println(i, j)
+        end"""
+        str = """
+        for i in I1, j in I2
+            println(i, j)
+        end"""
+        @test fmt(str_) == str
+
+        str = """
+        for i = 1:30, j = 100:-2:1
+            println(i, j)
+        end"""
+        str_ = """
+        for i = 1:30, j in 100:-2:1
+            println(i, j)
+        end"""
+        @test fmt(str) == str
+
+        str_ = "[(i,j) for i=I1,j=I2]"
+        str = "[(i, j) for i in I1, j in I2]"
+        @test fmt(str_) == str
+
+        str_ = "((i,j) for i=I1,j=I2)"
+        str = "((i, j) for i in I1, j in I2)"
+        @test fmt(str_) == str
+
+        str_ = "[(i,j) for i in 1:2:10,j  in 100:-1:10]"
+        str = "[(i, j) for i = 1:2:10, j = 100:-1:10]"
+        @test fmt(str_) == str
+
+        str_ = "((i,j) for i in 1:2:10,j  in 100:-1:10)"
+        str = "((i, j) for i = 1:2:10, j = 100:-1:10)"
+        @test fmt(str_) == str
+    end
+
     @testset "tuples" begin
         @test fmt("a,b") == "a, b"
         @test fmt("a ,b") == "a, b"
@@ -109,7 +193,7 @@ end
 
         str = "!(typ <: ArithmeticTypes)"
         @test fmt(str) == str
-        
+
         # Function def
 
         str_ = """foo() = if cond a else b end"""
@@ -137,6 +221,9 @@ end
                 body
             end"""
         @test fmt(str_) == str
+
+        str = """foo() = :(Union{})"""
+        @test fmt(str) == str
 
         str_ = """foo() = for i=1:10 body end"""
         str = """
@@ -447,15 +534,15 @@ end
             arg
         end"""
         @test fmt("""
-        for iter in I, iter2 in I2
+        for iter = I, iter2= I2
             arg
         end""") == str
         @test fmt("""
-        for iter in I, iter2 in I2
+        for iter= I, iter2=I2
         arg
         end""") == str
         @test fmt("""
-        for iter in I, iter2 in I2
+        for iter    = I, iter2 = I2
                 arg
             end""") == str
 
@@ -467,7 +554,7 @@ end
         @test length(t) == 12
 
         str = """
-        for i = 1:10
+        for i in 1:10
             bodybodybodybody
         end"""
         t = run_pretty(str, 80)
@@ -732,7 +819,7 @@ end
         end"""
         t = run_pretty(str, 80)
         @test length(t) == 11
-    
+
     end
 
     @testset "if" begin
@@ -1045,6 +1132,17 @@ end
         b = 20           # foo
         end    # trailing comment"""
         @test fmt(str_) == str
+
+        str = """
+        function bar(x, y)
+            # single comment ending in a subscriptₙ
+            x - y
+        end"""
+        @test fmt("""
+        function bar(x, y)
+            # single comment ending in a subscriptₙ
+            x- y
+        end""") == str
     end
 
     @testset "pretty" begin
@@ -1213,7 +1311,10 @@ end
         @test fmt("T[a;   b;         c;   e  d    f   ]") == str
 
         str = """T[e for e in x]"""
-        @test fmt("T[e  for e in x  ]") == str
+        @test fmt("T[e  for e= x  ]") == str
+
+        str = """T[e for e = 1:2:50]"""
+        @test fmt("T[e  for e= 1:2:50  ]") == str
 
         str = """struct Foo end"""
         @test fmt("struct Foo\n      end") == str
@@ -1481,7 +1582,7 @@ end
         @test fmt("(a;b;c)", 4, 100) == str
         @test fmt("(a;b;c)", 4, 1) == str
 
-        str = "(x for x in 1:10)"
+        str = "(x for x = 1:10)"
         @test fmt("(x   for x  in  1 : 10)", 4, 100) == str
         @test fmt("(x   for x  in  1 : 10)", 4, 1) == str
 
@@ -1587,8 +1688,8 @@ end
             :mesh_dim => Cint(3),
         )"""
 
-        str_ = """this_is_a_long_variable_name = Dict{Symbol,Any}(:numberofpointattributes => NAttributes, 
-               :numberofpointmtrs => NMTr, :numberofcorners => NSimplex, :firstnumber => Cint(1), 
+        str_ = """this_is_a_long_variable_name = Dict{Symbol,Any}(:numberofpointattributes => NAttributes,
+               :numberofpointmtrs => NMTr, :numberofcorners => NSimplex, :firstnumber => Cint(1),
                :mesh_dim => Cint(3),)"""
         @test fmt(str_, 4, 80) == str
 
@@ -1613,8 +1714,8 @@ end
             :mesh_dim => Cint(3),
         )"""
 
-        str_ = """this_is_a_long_variable_name = (:numberofpointattributes => NAttributes, 
-               :numberofpointmtrs => NMTr, :numberofcorners => NSimplex, :firstnumber => Cint(1), 
+        str_ = """this_is_a_long_variable_name = (:numberofpointattributes => NAttributes,
+               :numberofpointmtrs => NMTr, :numberofcorners => NSimplex, :firstnumber => Cint(1),
                :mesh_dim => Cint(3),)"""
         @test fmt(str_, 4, 80) == str
 
@@ -1874,14 +1975,14 @@ end
         @test s.line_offset == 12
 
         # https://github.com/domluna/JuliaFormatter.jl/issues/9#issuecomment-481607068
-        str = """this_is_a_long_variable_name = Dict{Symbol,Any}(:numberofpointattributes => NAttributes, 
-               :numberofpointmtrs => NMTr, :numberofcorners => NSimplex, :firstnumber => Cint(1), 
+        str = """this_is_a_long_variable_name = Dict{Symbol,Any}(:numberofpointattributes => NAttributes,
+               :numberofpointmtrs => NMTr, :numberofcorners => NSimplex, :firstnumber => Cint(1),
                :mesh_dim => Cint(3),)"""
         s = run_nest(str, 80)
         @test s.line_offset == 1
 
-        str = """this_is_a_long_variable_name = (:numberofpointattributes => NAttributes, 
-               :numberofpointmtrs => NMTr, :numberofcorners => NSimplex, :firstnumber => Cint(1), 
+        str = """this_is_a_long_variable_name = (:numberofpointattributes => NAttributes,
+               :numberofpointmtrs => NMTr, :numberofcorners => NSimplex, :firstnumber => Cint(1),
                :mesh_dim => Cint(3),)"""
         s = run_nest(str, 80)
         @test s.line_offset == 1
@@ -2076,4 +2177,3 @@ end
 # end
 
 end
-
