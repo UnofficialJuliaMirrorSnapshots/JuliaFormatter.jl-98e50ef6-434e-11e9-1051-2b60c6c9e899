@@ -3,7 +3,14 @@ import JuliaFormatter
 using CSTParser
 using Test
 
-fmt(s, i = 4, m = 80) = JuliaFormatter.format_text(s, indent = i, margin = m)
+fmt1(s, i = 4, m = 80) = JuliaFormatter.format_text(s, indent = i, margin = m)
+
+# Verifies formatting the formatted text
+# results in the same output
+function fmt(s, i = 4, m = 80)
+    s1 = fmt1(s, i, m)
+    fmt1(s1, i, m)
+end
 
 function run_pretty(text::String, print_width::Int)
     d = JuliaFormatter.Document(text)
@@ -870,58 +877,70 @@ end
         t = run_pretty(str, 80)
         @test length(t) == 12
 
-        @test fmt("""
+        str = """
         \"""doc
         \"""
         function f()
             20
-        end""") == str
+        end"""
+        @test fmt(str) == str
 
-        @test fmt("""
+        str = """
         \"""
         doc\"""
         function f()
             20
-        end""") == str
+        end"""
+        @test fmt(str) == str
 
-        @test fmt("""
+        str = """
         \"""doc\"""
         function f()
             20
-        end""") == str
+        end"""
+        @test fmt(str) == str
 
-        @test fmt("""
+        str = """
         "doc
         "
         function f()
             20
-        end""") == str
+        end"""
+        @test fmt(str) == str
 
-        @test fmt("""
+        str = """
         "
         doc"
         function f()
             20
-        end""") == str
+        end"""
+        @test fmt(str) == str
 
-        @test fmt("""
+        str = """
         "doc"
         function f()
             20
-        end""") == str
+        end"""
+        @test fmt(str) == str
 
         # test aligning to function identation
-        @test fmt("""
+        str_ = """
             "doc"
         function f()
             20
-        end""") == str
+        end"""
+        str = """
+        "doc"
+        function f()
+            20
+        end"""
+        @test fmt(str_) == str
 
         str = """\"""
                  doc for Foo
                  \"""
                  Foo"""
-        @test fmt("\"\"\"doc for Foo\"\"\"\nFoo") == str
+        @test fmt(str) == str
         t = run_pretty(str, 80)
         @test length(t) == 11
 
@@ -946,14 +965,12 @@ end
         str = """error("foo\\n\\nbar")"""
         @test fmt(str) == str
 
-        # nesting
-
         str = """
         \"""
         \\\\
         \"""
         x"""
-        @test fmt("\"\\\\\" x") == str
+        @test fmt(str) == str
 
         str = """
         begin
@@ -1309,6 +1326,16 @@ end
         str = """
         T[a; b; c; e d f]"""
         @test fmt("T[a;   b;         c;   e  d    f   ]") == str
+
+        str = """
+        T[a; b; c; e d f]"""
+        @test fmt("T[a;   b;         c;   e  d    f    ;   ]") == str
+
+        str = "T[a;]"
+        @test fmt(str) == str
+
+        str = "[a;]"
+        @test fmt(str) == str
 
         str = """T[e for e in x]"""
         @test fmt("T[e  for e= x  ]") == str
