@@ -6,37 +6,38 @@
 Width-sensitive formatter for Julia code. Inspired by gofmt and refmt.
 
 ```julia
-]add https://github.com/domluna/JuliaFormatter.jl
+]add JuliaFormatter
 ```
 
 `JuliaFormatter` exports `format_text`, `format_file` and `format`:
 
 ```julia
 format_text(text::AbstractString; indent = 4, margin = 92)
-format_file(file::AbstractString; indent = 4, margin = 92, overwrite = true)
-format(paths...; indent = 4, margin = 92, overwrite = true)
+format_file(file::AbstractString; indent = 4, margin = 92, overwrite = true, verbose = false)
+format(paths...; indent = 4, margin = 92, overwrite = true, verbose = false)
 ```
 
 The `text` argument to `format_text` is a string containing the code to be formatted; the formatted code is retuned as a new string. The `file` argument to `format_file` is the path of a file to be formatted. The `format` function is either called with a singe string to format if it is a `.jl` file or to recuse into looking for `.jl` files if it is a directory. It can also be called with a collection of such paths to iterate over.
 
 *Options:*
 
-* `indent` - the number of spaces used for an indentation.
-* `margin` - the maximum number of characters of code on a single line. Lines over
+* `indent` - The number of spaces used for an indentation.
+* `margin` - The maximum number of characters of code on a single line. Lines over
 the limit will be wrapped if possible. There are cases where lines cannot be wrapped
 and they will still end up wider than the requested margin.
-* `overwrite` - if the file should be overwritten by the formatted output. If set to false, the formatted version of file named `foo.jl` will be written to `foo_fmt.jl`.
+* `overwrite` - If the file should be overwritten by the formatted output. If set to false, the formatted version of file named `foo.jl` will be written to `foo_fmt.jl`.
+* `verbose` - Whether to print the name of the file being formatted along with relevant details to `stdout`.
 
 There is also a command-line tool `bin/format.jl` which can be invoked with `-i`/`--indent` and `-m`/`--margin` and with paths which will be passed to `format`.
 
 
 ## How It Works
 
-`JuliaFormatter` parses the `.jl` source file into a Concrete Syntax Tree (CST) using [`CSTParser`](https://github.com/ZacLN/CSTParser.jl).
+`JuliaFormatter` parses a `.jl` source file into a Concrete Syntax Tree (CST) using [`CSTParser`](https://github.com/ZacLN/CSTParser.jl).
 
 ### Pass 1: Prettify
 
-The CST is "prettified", creating a `PTree`. The printing output of a `PTree` is a canonical representation of the code removing unnecessary whitespace and joining or separating lines of code. The [`pretty` testset](./test/runtests.jl) displays these transformations.
+The CST is "prettified", creating a `PTree`. The printing output of a `PTree` is a canonical representation of the code removing unnecessary whitespace and joining or separating lines of code.
 
 Example:
 
@@ -138,6 +139,25 @@ S <: Union{
 }
 ```
 
+If a comment is detected inside the `PTree` it nesting will be forced. For example:
+
+```julia
+var = foo(
+    a, b, # comment
+    c,
+)
+```
+
+formatted result will be (regardless of the margin)
+
+```julia
+var = foo(
+    a,
+    b, # comment
+    c,
+)
+```
+
 ### Part 3: Printing
 
 Finally, the `PTree` is printed to an `IOBuffer`. Prior to returning the formatted text a final validity
@@ -158,31 +178,9 @@ end
 
 `JuliaFormatter` will see the comment on the first line, notice it contains "nofmt", and return the original text.
 
-## Present Limitation(s)
+## Syntax Tree Transformations
 
-Inline comments inside of a nestable types are removed.
+### `for in` vs. `for =`
 
-Example:
-
-```julia
-function foo(
-    a, # a does ...
-    b, # b does ...
-    c
-)
-    body
-end
-```
-
-When formatted will produce:
-
-```julia
-function foo(
-    a,
-    b,
-    c
-)
-    body
-end
-```
+If the RHS is a range, i.e. `1:10` then `for in` is converted to `for =`. Otherwise `for =` is converted to `for in`. See [this issue](https://github.com/domluna/JuliaFormatter.jl/issues/34) for the rationale and further explanation.
 

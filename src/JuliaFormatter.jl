@@ -89,6 +89,7 @@ State(doc, indent_size, margin) = State(doc, indent_size, 0, 1, 0, margin)
 
 @inline nspaces(s::State) = s.indent
 @inline getline(d::Document, line::Int) = d.text[d.line_to_range[line]]
+@inline hascomment(d::Document, line::Int) = haskey(d.comments, line)
 
 @inline function cursor_loc(s::State, offset::Int)
     for (l, r) in enumerate(s.doc.ranges)
@@ -132,7 +133,7 @@ function format_text(text::AbstractString; indent::Integer = 4, margin::Integer 
 
     s = State(d, indent, margin)
     t = pretty(x, s)
-    add_node!(t, InlineComment(t.endline))
+    hascomment(s.doc, t.endline) && (add_node!(t, InlineComment(t.endline), s))
     nest!(t, s)
 
     io = IOBuffer()
@@ -144,8 +145,8 @@ function format_text(text::AbstractString; indent::Integer = 4, margin::Integer 
     end
 
     if t.endline < length(s.doc.ranges)
-        add_node!(t, Newline())
-        add_node!(t, Notcode(t.endline + 1, length(s.doc.ranges)))
+        add_node!(t, Newline(), s)
+        add_node!(t, Notcode(t.endline + 1, length(s.doc.ranges)), s)
     end
 
     print_tree(io, t, s)
@@ -163,6 +164,7 @@ end
         indent::Integer = 4,
         margin::Integer = 92,
         overwrite::Bool = true,
+        verbose::Bool = false,
     )
 
 Formats the contents of `filename` assuming it's a Julia source file.
@@ -175,15 +177,22 @@ The formatting options are:
 If `overwrite` is `true` the file will be reformatted in place, overwriting
 the existing file; if it is `false`, the formatted version of `foo.jl` will
 be written to `foo_fmt.jl` instead.
+
+If `verbose` is `true` details related to formatting the file will be printed
+to `stdout`.
 """
 function format_file(
     filename::AbstractString;
-    indent::Integer = 4, margin::Integer = 92, overwrite::Bool = true,
+    indent::Integer = 4,
+    margin::Integer = 92,
+    overwrite::Bool = true,
+    verbose::Bool = false,
 )
     path, ext = splitext(filename)
     if ext != ".jl"
         error("$filename must be a Julia (.jl) source file")
     end
+    verbose && println("Formatting $filename with indent = $indent, margin = $margin")
     str = read(filename) |> String
     str = format_text(str, indent = indent, margin = margin)
     overwrite ? write(filename, str) : write(path * "_fmt" * ext, str)
@@ -196,6 +205,7 @@ end
         indent::Integer = 4,
         margin::Integer = 92,
         overwrite::Bool = true,
+        verbose::Bool = false,
     )
 
 Recursively descend into files and directories, formatting and `.jl`
