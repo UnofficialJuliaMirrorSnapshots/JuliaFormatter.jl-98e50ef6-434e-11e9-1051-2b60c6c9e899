@@ -35,6 +35,20 @@ end
         @test fmt("") == ""
         @test fmt("a") == "a"
         @test fmt("a  #foo") == "a  #foo"
+        @test fmt("#foo") == "#foo"
+
+        str = """
+        #=
+        Hello, world!
+        =#"""
+        @test fmt(str) == str
+
+        str = """
+        #=
+        Hello, world!
+        =#
+        a"""
+        @test fmt(str) == str
     end
 
     @testset "nofmt" begin
@@ -50,8 +64,21 @@ end
         a = 10;
 
 
-        c = 50;"""
-        @test fmt(str) == str
+        c = 50;
+
+        #comment"""
+        str_ = """
+
+        hello = "string";
+
+        a = 10
+        ;
+
+
+        c = 50;
+
+        #comment"""
+        @test fmt(str_) == str
         t = run_pretty(str, 80)
         @test length(t) == 17
     end
@@ -133,7 +160,7 @@ end
         @test fmt("(a ,b)") == "(a, b)"
         @test fmt("( a, b)") == "(a, b)"
         @test fmt("(a, b )") == "(a, b)"
-        @test fmt("(a, b ,)") == "(a, b,)"
+        @test fmt("(a, b ,)") == "(a, b)"
         @test fmt("""(a,    b ,
                             c)""") == "(a, b, c)"
     end
@@ -165,9 +192,16 @@ end
 
     @testset "where op" begin
         str = "Atomic{T}(value) where {T<:AtomicTypes} = new(value)"
+        str_ = "Atomic{T}(value) where T <: AtomicTypes = new(value)"
+        @test fmt(str) == str
+        @test fmt(str_) == str
+
+        str = "Vector{Vector{T} where T}"
         @test fmt(str) == str
 
-        str = "Atomic{T}(value) where T <: AtomicTypes = new(value)"
+        str_ = "Vector{Vector{T}} where T"
+        str = "Vector{Vector{T}} where {T}"
+        @test fmt(str_) == str
         @test fmt(str) == str
     end
 
@@ -196,7 +230,8 @@ end
         @test fmt("a:b:c ") == "a:b:c"
         @test fmt("a::b:: c") == "a::b::c"
         @test fmt("a :: b::c") == "a::b::c"
-        @test fmt("2n") == "2n"
+        @test fmt("2a") == "2a"
+        @test fmt("2(a+1)") == "2 * (a + 1)"
 
         str = "!(typ <: ArithmeticTypes)"
         @test fmt(str) == str
@@ -361,8 +396,8 @@ end
     @testset "func call" begin
         @test fmt("func(a, b, c)") == "func(a, b, c)"
         @test fmt("func(a,b,c)") == "func(a, b, c)"
-        @test fmt("func(a,b,c,)") == "func(a, b, c,)"
-        @test fmt("func(a,b,c, )") == "func(a, b, c,)"
+        @test fmt("func(a,b,c,)") == "func(a, b, c)"
+        @test fmt("func(a,b,c, )") == "func(a, b, c)"
         @test fmt("func( a,b,c    )") == "func(a, b, c)"
         @test fmt("func(a, b, c) ") == "func(a, b, c)"
         @test fmt("func(a, b; c)") == "func(a, b; c)"
@@ -423,7 +458,7 @@ end
             s = foo(
                 aaaa,
                 bbbb,
-                cccc
+                cccc,
             )
         end"""
         @test fmt(str, 4, 28) == str
@@ -479,7 +514,7 @@ end
             s = foo(
                 aaaa,
                 bbbb,
-                cccc
+                cccc,
             )
         end"""
         @test fmt(str, 4, 28) == str
@@ -515,6 +550,47 @@ end
         t = run_pretty(str, 80)
         @test length(t) == 27
         @test fmt(str, 4, 26) == str
+
+        # issue #58
+
+        str_ = """
+        model = SDDP.LinearPolicyGraph(stages = 2, lower_bound = 1, direct_mode = false) do (subproblem1, subproblem2, subproblem3, subproblem4, subproblem5, subproblem6, subproblem7, subproblem8)
+            body
+        end"""
+        str = """
+        model =
+            SDDP.LinearPolicyGraph(
+                stages = 2,
+                lower_bound = 1,
+                direct_mode = false,
+            ) do (
+                subproblem1,
+                subproblem2,
+                subproblem3,
+                subproblem4,
+                subproblem5,
+                subproblem6,
+                subproblem7,
+                subproblem8,
+            )
+                body
+            end"""
+        @test fmt(str_) == str
+
+        str_ = """
+        model = SDDP.LinearPolicyGraph(stages = 2, lower_bound = 1, direct_mode = false) do subproblem1, subproblem2
+            body
+        end"""
+        str = """
+        model =
+            SDDP.LinearPolicyGraph(
+                stages = 2,
+                lower_bound = 1,
+                direct_mode = false,
+            ) do subproblem1, subproblem2
+                body
+            end"""
+        @test fmt(str_) == str
 
     end
 
@@ -1046,7 +1122,7 @@ end
         @test fmt(str) == str
     end
 
-    @testset "notcode" begin
+    @testset "comments" begin
         str = """
         module Foo
         # comment 0
@@ -1174,7 +1250,7 @@ end
             b, # comment 1
             c, # comment 2
             # in between comment
-            d # comment 3
+            d, # comment 3
         )        # pancakes"""
         @test fmt(str_) == str
 
@@ -1189,7 +1265,7 @@ end
             a,
             b, # comment 1
             c, # comment 2
-            d # comment 3
+            d, # comment 3
         )        # pancakes"""
         @test fmt(str_) == str
 
@@ -1243,29 +1319,145 @@ end
         """
         @test fmt(str) == str
 
+        str_ = """
+        foo() = 10 where {
+            # comment
+            A,
+                # comment
+            B
+            # comment
+        }"""
         str = """
         foo() = 10 where {
+            # comment
+            A,
+                # comment
+            B,
+            # comment
+        }"""
+        @test fmt(str_) == str
+
+        str_ = """
+        foo() = 10 where Foo{
+            # comment
             A,
                 # comment
             B
+            # comment
         }"""
-        @test fmt(str) == str
-
         str = """
         foo() = 10 where Foo{
+            # comment
+            A,
+                # comment
+            B,
+            # comment
+        }"""
+        @test fmt(str_) == str
+
+        str_ = """
+        foo() = Foo(
+            # comment
             A,
                 # comment
             B
-        }"""
+            # comment
+        )"""
+        str = """
+        foo() = Foo(
+            # comment
+            A,
+                # comment
+            B,
+            # comment
+        )"""
+        @test fmt(str_) == str
+
+        str = """
+        foo(
+            # comment
+            ;
+            # comment
+            a = b, # comment
+            c = d,
+            # comment
+        )"""
         @test fmt(str) == str
 
         str = """
-        foo() = Foo(
-            A,
-                # comment
-            B
+        foo(
+            ;
+            a = b, # comment
+            c = d,
+            # comment
         )"""
         @test fmt(str) == str
+
+        str_ = """
+        foo(
+            ;
+            ;a = b, # comment
+            c = d,
+            # comment
+        )"""
+        @test fmt(str_) == str
+
+        str_ = """
+        foo( ;
+            ;a = b, # comment
+            c = d,
+            # comment
+        )"""
+        @test fmt(str_) == str
+
+        # str = """
+        # [
+        #  a b Expr();
+        #  d e Expr()
+        # ]"""
+        # str_ = """
+        # [
+        # ;
+        # ;
+        # ;
+        #  a b Expr();
+        #  ;
+        #  d e Expr();
+        #  ;
+        # ]"""
+        # @test fmt(str_) == str
+        #
+
+        # Issue #51
+        # NOTE: `str_` has extra whitespace after
+        # keywords on purpose
+        str_ = """
+        begin 
+            # comment
+        end"""
+        str = """
+        begin
+            # comment
+        end"""
+        @test fmt(str_) == str
+
+        str_ = """
+        try 
+            # comment
+        catch 
+            # comment
+        finally 
+            # comment
+        end"""
+        str = """
+        try
+            # comment
+        catch
+            # comment
+        finally
+            # comment
+        end"""
+        @test fmt(str_) == str
 
     end
 
@@ -1541,55 +1733,44 @@ end
         function f(
             arg1::A,
             key1 = val1;
-            key2 = val2
+            key2 = val2,
         ) where {
             A,
             F{
               B,
-              C
-            }
+              C,
+            },
         }
             10
             20
         end"""
-        @test fmt(
-            "function f(arg1::A,key1=val1;key2=val2) where {A,F{B,C}} 10; 20 end",
-            4,
-            1
-        ) == str
+        str_ = "function f(arg1::A,key1=val1;key2=val2) where {A,F{B,C}} 10; 20 end"
+        @test fmt(str_, 4, 1) == str
 
         str = """
         function f(
             arg1::A,
             key1 = val1;
-            key2 = val2
+            key2 = val2,
         ) where {
             A,
-            F{B,C}
+            F{B,C},
         }
             10
             20
         end"""
-        @test fmt(
-            "function f(arg1::A,key1=val1;key2=val2) where {A,F{B,C}} 10; 20 end",
-            4,
-            17
-        ) == str
+        @test fmt(str_, 4, 17) == str
 
         str = """
         function f(
             arg1::A,
             key1 = val1;
-            key2 = val2
+            key2 = val2,
         ) where {A,F{B,C}}
             10
             20
         end"""
-        @test fmt(
-            "function f(arg1::A,key1=val1;key2=val2) where {A,F{B,C}} 10; 20 end",
-            4,
-            18
-        ) == str
+        @test fmt(str_, 4, 18) == str
 
         str = """
         a |
@@ -1614,7 +1795,7 @@ end
          a,
          b,
          c,
-         d
+         d,
         )"""
         @test fmt("(a, b, c, d)", 4, 11) == str
 
@@ -1626,7 +1807,7 @@ end
          a,
          b,
          c,
-         d
+         d,
         }"""
         @test fmt("{a, b, c, d}", 4, 11) == str
 
@@ -1638,7 +1819,7 @@ end
          a,
          b,
          c,
-         d
+         d,
         ]"""
         @test fmt("[a, b, c, d]", 4, 11) == str
 
@@ -1692,8 +1873,8 @@ end
              one,
              x -> (
                  true,
-                 false
-             )
+                 false,
+             ),
             )"""
         @test fmt("foo() = (one, x -> (true, false))", 4, 20) == str
 
@@ -1830,7 +2011,7 @@ end
 
         str = """this_is_a_long_variable_name = Dict{
              Symbol,
-             Any
+             Any,
         }(
              :numberofpointattributes => NAttributes,
              :numberofpointmtrs => NMTr,
@@ -1890,8 +2071,8 @@ end
             \""",
             foo(
                 b,
-                c
-            )
+                c,
+            ),
         )"""
         @test fmt(str, 4, 1) == str_
 
@@ -1904,7 +2085,7 @@ end
             string.
             Longest line
             \""",
-            foo(b, c)
+            foo(b, c),
         )"""
         @test fmt(str, 4, 31) == str
 
@@ -1978,6 +2159,24 @@ end
         @test fmt(str_) == str_
         @test fmt(str_, 4, 1) == str
 
+        # https://github.com/domluna/JuliaFormatter.jl/issues/60
+        str_ = """
+        function write_subproblem_to_file(
+                node::Node, filename::String;
+                format::Symbol=:both, throw_error::Bool = false)
+            body
+        end"""
+        str = """
+        function write_subproblem_to_file(
+            node::Node,
+            filename::String;
+            format::Symbol = :both,
+            throw_error::Bool = false,
+        )
+            body
+        end"""
+        @test fmt(str_) == str
+
     end
 
     @testset "nesting line offset" begin
@@ -2033,13 +2232,14 @@ end
         s = run_nest(str, 1)
         @test s.line_offset == 1
 
-        str = "f(a, b, c) where A"
+        str = "f(a, b, c) where {A}"
         s = run_nest(str, 100)
+        # adds surrounding {...} after `where`
         @test s.line_offset == length(str)
         s = run_nest(str, 1)
-        @test s.line_offset == 9
+        @test s.line_offset == 11
 
-        str = "f(a, b, c) where A <: S"
+        str = "f(a, b, c) where {A<:S}"
         s = run_nest(str, 100)
         @test s.line_offset == length(str)
         s = run_nest(str, 1)
@@ -2125,7 +2325,7 @@ end
                 body2
                 @Expr :break loop_exit2
                 body3
-            end
+            end,
         )"""
         @test fmt(str_, 4, 20) == str
 
@@ -2151,73 +2351,98 @@ end
     end
 
     @testset "additional length" begin
+        str_ = "f(a, @g(b, c), d)"
         str = """
         f(
           a,
           @g(b, c),
-          d
+          d,
         )"""
-        @test fmt("f(a, @g(b, c), d)", 4, 11) == str
+        @test fmt(str_, 4, 11) == str
+        @test fmt(str, 4, length(str)) == str_
 
+        str_ = "f(a, @g(b, c), d)"
         str = """
         f(
           a,
           @g(
              b,
-             c
+             c,
           ),
-          d
+          d,
         )"""
-        @test fmt("f(a, @g(b, c), d)", 4, 10) == str
+        @test fmt(str_, 4, 10) == str
+        @test fmt(str, 4, length(str)) == str_
 
+        str_ = "(a, (b, c), d)"
         str = """
         (
          a,
          (
           b,
-          c
+          c,
          ),
-         d
+         d,
         )"""
-        @test fmt("(a, (b, c), d)", 4, 7) == str
+        @test fmt(str_, 4, 7) == str
+        @test fmt(str, 4, length(str)) == str_
 
+        str_ = "(a, {b, c}, d)"
         str = """
         (
          a,
          {
           b,
-          c
+          c,
          },
-         d
+         d,
         )"""
-        @test fmt("(a, {b, c}, d)", 4, 6) == str
+        @test fmt(str_, 4, 6) == str
+        @test fmt(str, 4, length(str)) == str_
 
+        str_ = "(a, [b, c], d)"
+        str = """
+        (
+         a,
+         [
+          b,
+          c,
+         ],
+         d,
+        )"""
+        @test fmt(str_, 4, 6) == str
+        @test fmt(str, 4, length(str)) == str_
+
+        str_ = "a, (b, c), d"
         str = """
         a,
         (
          b,
-         c
+         c,
         ),
         d"""
-        @test fmt("a, (b, c), d", 4, 6) == str
+        @test fmt(str_, 4, 6) == str
+        @test fmt(str, 4, length(str)) == str_
 
+        str_ = "a, (b, c), d"
         str = """
         a,
         (b, c),
         d"""
-        @test fmt("a, (b, c), d", 4, 7) == str
+        @test fmt(str_, 4, 7) == str
+        @test fmt(str, 4, length(str)) == str_
 
         str = """
         (
          var1,
-         var2
+         var2,
         ) && var3"""
         @test fmt("(var1,var2) && var3", 4, 10) == str
 
         str = """
         (
          var1,
-         var2
+         var2,
         ) && var3"""
         @test fmt("(var1,var2) && var3", 4, 19) == str
 
@@ -2230,11 +2455,11 @@ end
         str = """
         (
          var1,
-         var2
+         var2,
         ) ?
         (
          var3,
-         var4
+         var4,
         ) :
         var5"""
         @test fmt("(var1,var2) ? (var3,var4) : var5", 4, 13) == str
@@ -2252,22 +2477,24 @@ end
         str = """
         f(
           var1::A,
-          var2::B
+          var2::B,
         ) where {A,B}"""
         @test fmt("f(var1::A, var2::B) where {A,B}", 4, 30) == str
 
         str = """
         f(
           var1::A,
-          var2::B
+          var2::B,
         ) where {
             A,
-            B
+            B,
         }"""
         @test fmt("f(var1::A, var2::B) where {A,B}", 4, 12) == str
 
         str = "foo(a, b, c)::Rtype where {A,B} = 10"
+        str_ = "foo(a, b, c)::Rtype where {A,B,} = 10"
         @test fmt(str, 4, length(str)) == str
+        @test fmt(str_, 4, length(str_)) == str
 
         str_ = """
         foo(a, b, c)::Rtype where {A,B} =
@@ -2278,7 +2505,7 @@ end
         str_ = """
         foo(a, b, c)::Rtype where {
             A,
-            B
+            B,
         } = 10"""
         @test fmt(str, 4, 32) == str_
         @test fmt(str, 4, 19) == str_
@@ -2287,10 +2514,10 @@ end
         foo(
             a,
             b,
-            c
+            c,
         )::Rtype where {
             A,
-            B
+            B,
         } = 10"""
         @test fmt(str, 4, 18) == str_
 
@@ -2301,7 +2528,7 @@ end
         str = """
         transcode(::Type{THISISONESUPERLONGTYPE1234567}) where {T<:Union{
           Int32,
-          UInt32
+          UInt32,
         }} = transcode(T, String(Vector(src)))"""
         @test fmt(str_, 2, 80) == str
         @test fmt(str_, 2, 38) == str
@@ -2309,7 +2536,7 @@ end
         str = """
         transcode(::Type{THISISONESUPERLONGTYPE1234567}) where {T<:Union{
           Int32,
-          UInt32
+          UInt32,
         }} =
           transcode(T, String(Vector(src)))"""
         @test fmt(str_, 2, 37) == str
@@ -2318,7 +2545,7 @@ end
         str = """
         transcode(
           ::Type{T},
-          src::AbstractVector{UInt8}
+          src::AbstractVector{UInt8},
         ) where {T<:Union{Int32,UInt32}} = transcode(T, String(Vector(src)))"""
         @test fmt(str_, 2, 80) == str
         @test fmt(str_, 2, 68) == str
@@ -2326,16 +2553,48 @@ end
         str = """
         transcode(
           ::Type{T},
-          src::AbstractVector{UInt8}
+          src::AbstractVector{UInt8},
         ) where {T<:Union{Int32,UInt32}} =
           transcode(T, String(Vector(src)))"""
         @test fmt(str_, 2, 67) == str
+
+        # issue 56
+        str_ = "a_long_function_name(Array{Float64,2}[[1.0], [0.5 0.5], [0.5 0.5; 0.5 0.5], [0.5 0.5; 0.5 0.5]])"
+        str = """
+        a_long_function_name(Array{Float64,2}[
+            [1.0],
+            [0.5 0.5],
+            [0.5 0.5; 0.5 0.5],
+            [0.5 0.5; 0.5 0.5],
+        ])"""
+        @test fmt(str, 4, length(str)) == str_
+        @test fmt(str_) == str
+
+        # unary op
+        str_ = "[1, 1]'"
+        str = """
+        [
+         1,
+         1,
+        ]'"""
+        @test fmt(str, 4, length(str)) == str_
+        @test fmt(str_, 4, length(str_) - 1) == str
+    end
+
+    @testset "Trailing zeros" begin
+        @test fmt("1.") == "1.0"
+        @test fmt("a * 1. + b") == "a * 1.0 + b"
+        @test fmt("1. + 2. * im") == "1.0 + 2.0 * im"
+        @test fmt("[1., 2.]") == "[1.0, 2.0]"
+        @test fmt("""
+        1. +
+            2.
+        """) == "1.0 + 2.0\n"
     end
 
 # @testset "meta-format" begin
 #     str = String(read("./runtests.jl"))
 #     str = fmt(str)
-#
 # end
 
 end

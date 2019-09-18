@@ -3,7 +3,7 @@ module JuliaFormatter
 using CSTParser
 import CSTParser.Tokenize.Tokens
 
-export format, format_file, format_dir
+export format, format_text, format_file, format_dir
 
 is_str_or_cmd(x::Tokens.Kind) =
     x in (Tokens.CMD, Tokens.TRIPLE_CMD, Tokens.STRING, Tokens.TRIPLE_STRING)
@@ -18,15 +18,21 @@ struct Document
     # string and what lines it starts and ends at.
     lit_strings::Dict{Int,Tuple{Int,Int,String}}
     comments::Dict{Int,String}
+
+    # CSTParser does not detect semicolons.
+    # It's useful to know where these are for
+    # a few node types.
+    semicolons::Set{Int}
 end
 function Document(text::AbstractString)
     ranges = UnitRange{Int}[]
     line_to_range = Dict{Int,UnitRange{Int}}()
     lit_strings = Dict{Int,Tuple{Int,Int,String}}()
     comments = Dict{Int,String}()
+    semicolons = Set{Int}()
 
     for t in CSTParser.Tokenize.tokenize(text)
-        if t.kind == Tokens.WHITESPACE
+        if t.kind === Tokens.WHITESPACE
             offset = t.startbyte
             for c in t.val
                 if c == '\n'
@@ -35,7 +41,7 @@ function Document(text::AbstractString)
                 end
                 offset += 1
             end
-        elseif t.kind == Tokens.ENDMARKER
+        elseif t.kind === Tokens.ENDMARKER
             s = length(ranges) > 0 ? last(ranges[end]) + 1 : 1
             push!(ranges, s:t.startbyte)
         elseif is_str_or_cmd(t.kind)
@@ -48,7 +54,7 @@ function Document(text::AbstractString)
                     push!(ranges, s:offset+nl)
                 end
             end
-        elseif t.kind == Tokens.COMMENT
+        elseif t.kind === Tokens.COMMENT
             if t.startpos[1] == t.endpos[1]
                 comments[t.startpos[1]] = t.val
             else
@@ -68,13 +74,14 @@ function Document(text::AbstractString)
                 # last comment
                 comments[sl] = t.val[comment_offset:end]
             end
+        elseif t.kind === Tokens.SEMICOLON
+            push!(semicolons, t.startpos[1])
         end
     end
     for (l, r) in enumerate(ranges)
         line_to_range[l] = r
     end
-    # @debug "" lit_strings comments
-    Document(text, ranges, line_to_range, lit_strings, comments)
+    Document(text, ranges, line_to_range, lit_strings, comments, semicolons)
 end
 
 mutable struct State
@@ -90,6 +97,7 @@ State(doc, indent_size, margin) = State(doc, indent_size, 0, 1, 0, margin)
 @inline nspaces(s::State) = s.indent
 @inline getline(d::Document, line::Int) = d.text[d.line_to_range[line]]
 @inline hascomment(d::Document, line::Int) = haskey(d.comments, line)
+@inline has_semicolon(d::Document, line::Int) = line in d.semicolons
 
 @inline function cursor_loc(s::State, offset::Int)
     for (l, r) in enumerate(s.doc.ranges)
@@ -126,6 +134,9 @@ function format_text(text::AbstractString; indent::Integer = 4, margin::Integer 
 
     x, ps = CSTParser.parse(CSTParser.ParseState(text), true)
     ps.errored && error("Parsing error for input $text")
+
+    # no actual code
+    x.args[1].kind === Tokens.NOTHING && length(x) == 1 && return text
 
     d = Document(text)
     # If "nofmt" occurs in a comment on line 1 do not format
