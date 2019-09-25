@@ -56,6 +56,13 @@ end
         @test fmt(str) == str
     end
 
+    @testset "dot op" begin
+        @test fmt("10 .^ a") == "10 .^ a"
+        @test fmt("10.0 .^ a") == "10.0 .^ a"
+        @test fmt("a.^b") == "a .^ b"
+        @test fmt("a.^10.") == "a .^ 10.0"
+    end
+
     @testset "toplevel" begin
         str = """
 
@@ -230,6 +237,8 @@ end
         @test fmt("a:b:c ") == "a:b:c"
         @test fmt("a::b:: c") == "a::b::c"
         @test fmt("a :: b::c") == "a::b::c"
+        # issue #74
+        @test fmt("0:1/3:2") == "0:1/3:2"
         @test fmt("2a") == "2a"
         @test fmt("2(a+1)") == "2 * (a + 1)"
 
@@ -404,6 +413,7 @@ end
         @test fmt("func(  a, b; c)") == "func(a, b; c)"
         @test fmt("func(a  ,b; c)") == "func(a, b; c)"
         @test fmt("func(a=1,b; c=1)") == "func(a = 1, b; c = 1)"
+        @test fmt("func(; c = 1)", 4, 1) == "func(; c = 1)"
     end
 
     @testset "begin" begin
@@ -1431,33 +1441,41 @@ end
         # Issue #51
         # NOTE: `str_` has extra whitespace after
         # keywords on purpose
-        str_ = """
-        begin 
-            # comment
-        end"""
+        str_ = "begin \n # comment\n end"
         str = """
         begin
-            # comment
+         # comment
         end"""
         @test fmt(str_) == str
 
-        str_ = """
-        try 
-            # comment
-        catch 
-            # comment
-        finally 
-            # comment
-        end"""
+        str_ = "try \n # comment\n catch \n # comment\n finally \n # comment\n end"
         str = """
         try
-            # comment
+         # comment
         catch
-            # comment
+         # comment
         finally
-            # comment
+         # comment
         end"""
         @test fmt(str_) == str
+
+        str = """a = "hello ##" # # # α"""
+        @test fmt(str) == str
+
+        # issue #65
+        str = "1 # α"
+        @test fmt(str) == str
+
+        str = "# α"
+        @test fmt(str) == str
+
+        str = """
+        #=
+        α
+        =#
+        x = 1
+        """
+        @test fmt(str) == str
 
     end
 
@@ -2133,32 +2151,6 @@ end
         @test fmt(str_, 4, 7) == str
         @test fmt(str_, 4, 1) == str
 
-        str_ = """
-        [ a b Expr()
-        d e Expr()]"""
-        str = """
-        [
-         a b Expr();
-         d e Expr()
-        ]"""
-        @test fmt(str_) == str
-        str_ = "[a b Expr(); d e Expr()]"
-        @test fmt(str_) == str_
-        @test fmt(str_, 4, 1) == str
-
-        str_ = """
-        T[ a b Expr()
-        d e Expr()]"""
-        str = """
-        T[
-          a b Expr();
-          d e Expr()
-        ]"""
-        @test fmt(str_) == str
-        str_ = "T[a b Expr(); d e Expr()]"
-        @test fmt(str_) == str_
-        @test fmt(str_, 4, 1) == str
-
         # https://github.com/domluna/JuliaFormatter.jl/issues/60
         str_ = """
         function write_subproblem_to_file(
@@ -2177,6 +2169,31 @@ end
         end"""
         @test fmt(str_) == str
 
+        # single function kwarg or param should not nest
+        @test fmt("f(;a=1)", 4, 1) == "f(; a = 1)"
+        @test fmt("f(a=1)", 4, 1) == "f(a = 1)"
+
+        # any pairing of argument, kawrg, or param should nest
+        str = """
+        f(
+          arg;
+          a = 1,
+        )"""
+        @test fmt("f(arg;a=1)", 4, 1) == str
+
+        str = """
+        f(
+          arg,
+          a = 1,
+        )"""
+        @test fmt("f(arg,a=1)", 4, 1) == str
+
+        str = """
+        f(
+          a = 1;
+          b = 2,
+        )"""
+        @test fmt("f(a=1; b=2)", 4, 1) == str
     end
 
     @testset "nesting line offset" begin
@@ -2590,6 +2607,89 @@ end
         1. +
             2.
         """) == "1.0 + 2.0\n"
+    end
+
+    # https://github.com/domluna/JuliaFormatter.jl/issues/77
+    @testset "issue 77" begin
+        str_ = """
+        [ a b Expr()
+        d e Expr()]"""
+        str = """
+        [
+         a b Expr()
+         d e Expr()
+        ]"""
+        @test fmt(str_) == str
+
+        str_ = """
+        T[ a b Expr()
+        d e Expr()]"""
+        str = """
+        T[
+          a b Expr()
+          d e Expr()
+        ]"""
+        @test fmt(str_) == str
+
+        str_ = """
+        [ a b Expr();
+        d e Expr();]"""
+        str = """
+        [
+         a b Expr()
+         d e Expr()
+        ]"""
+        @test fmt(str_) == str
+        str_ = "[a b Expr(); d e Expr()]"
+        @test fmt(str_) == str_
+        @test fmt(str_, 4, 1) == str
+
+        str_ = """
+        T[ a b Expr();
+        d e Expr();]"""
+        str = """
+        T[
+          a b Expr()
+          d e Expr()
+        ]"""
+        @test fmt(str_) == str
+
+        str_ = "T[a b Expr(); d e Expr()]"
+        @test fmt(str_) == str_
+        @test fmt(str_, 4, 1) == str
+
+        str = """
+        [
+         0.0 0.0 0.0 1.0
+         0.0 0.0 0.1 1.0
+         0.0 0.0 0.2 1.0
+         0.0 0.0 0.3 1.0
+         0.0 0.0 0.4 1.0
+         0.0 0.0 0.5 1.0
+         0.0 0.0 0.6 1.0
+         0.0 0.0 0.7 1.0
+         0.0 0.0 0.8 1.0
+         0.0 0.0 0.9 1.0
+         0.0 0.0 1.0 1.0
+         0.0 0.0 0.0 1.0
+         0.0 0.1 0.1 1.0
+         0.0 0.2 0.2 1.0
+         0.0 0.3 0.3 1.0
+         0.0 0.4 0.4 1.0
+         0.0 0.5 0.5 1.0
+         0.0 0.6 0.6 1.0
+         0.0 0.7 0.7 1.0
+         0.0 0.8 0.8 1.0
+         0.0 0.9 0.9 1.0
+         0.0 1.0 1.0 1.0
+         0.0 0.0 0.0 1.0
+         0.1 0.1 0.1 1.0
+         0.2 0.2 0.2 1.0
+         0.3 0.3 0.3 1.0
+         0.4 0.4 0.4 1.0
+         0.5 0.5 0.5 1.0
+        ]"""
+        @test fmt(str) == str
     end
 
 # @testset "meta-format" begin

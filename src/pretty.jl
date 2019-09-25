@@ -9,6 +9,7 @@
     NOTCODE,
     INLINECOMMENT,
     TRAILINGCOMMA,
+    TRAILINGSEMICOLON,
 )
 
 mutable struct PTree
@@ -23,20 +24,21 @@ mutable struct PTree
     force_nest::Bool
 end
 
-PTree(x::CSTParser.EXPR, indent::Int) =
+PTree(x::CSTParser.EXPR, indent::Integer) =
     PTree(x.typ, -1, -1, indent, 0, nothing, PTree[], Ref(x), false)
 
-function PTree(x::CSTParser.EXPR, startline::Int, endline::Int, val::AbstractString)
+function PTree(x::CSTParser.EXPR, startline::Integer, endline::Integer, val::AbstractString)
     PTree(x.typ, startline, endline, 0, length(val), val, nothing, Ref(x), false)
 end
 
-function PTree(x::CSTParser.Head, startline::Int, endline::Int, val::AbstractString)
+function PTree(x::CSTParser.Head, startline::Integer, endline::Integer, val::AbstractString)
     PTree(x, startline, endline, 0, length(val), val, nothing, nothing, false)
 end
 
 Newline() = PTree(NEWLINE, -1, -1, 0, 0, "\n", nothing, nothing, false)
 Semicolon() = PTree(SEMICOLON, -1, -1, 0, 1, ";", nothing, nothing, false)
 TrailingComma() = PTree(TRAILINGCOMMA, -1, -1, 0, 0, "", nothing, nothing, false)
+TrailingSemicolon() = PTree(TRAILINGSEMICOLON, -1, -1, 0, 1, ";", nothing, nothing, false)
 Whitespace(n) = PTree(WHITESPACE, -1, -1, 0, n, " "^n, nothing, nothing, false)
 Placeholder(n) = PTree(PLACEHOLDER, -1, -1, 0, n, " "^n, nothing, nothing, false)
 Notcode(startline, endline) =
@@ -114,7 +116,8 @@ function add_node!(t::PTree, n::PTree, s::State; join_lines = false, max_padding
         return
     elseif n.typ === CSTParser.Parameters
         add_node!(t, Semicolon(), s)
-        add_node!(t, Placeholder(1), s)
+        multi_arg = length(CSTParser.get_args(t.ref[])) > 1
+        multi_arg ? add_node!(t, Placeholder(1), s) : add_node!(t, Whitespace(1), s)
     end
 
     if length(t.nodes) == 0
@@ -304,6 +307,8 @@ function pretty(x::CSTParser.EXPR, s::State)
         return p_unarycall(x, s)
     elseif x.typ === CSTParser.ChainOpCall
         return p_chaincall(x, s)
+    elseif x.typ === CSTParser.ColonOpCall
+        return p_coloncall(x, s)
     elseif x.typ === CSTParser.Comparison
         return p_chaincall(x, s)
     elseif x.typ === CSTParser.Kw
@@ -529,14 +534,12 @@ end
 function p_macrocall(x, s)
     t = PTree(x, nspaces(s))
     if x.args[1].typ === CSTParser.GlobalRefDoc
-        loc = cursor_loc(s)
         # x.args[1] is empty and fullspan is 0 so we can skip it
         if x.args[2].typ === CSTParser.LITERAL
             add_node!(t, p_literal(x.args[2], s), s, max_padding = 0)
         elseif x.args[2].typ == CSTParser.StringH
             add_node!(t, p_stringh(x.args[2], s), s)
         end
-        loc = cursor_loc(s)
         add_node!(t, pretty(x.args[3], s), s, max_padding = 0)
         return t
     end
@@ -1068,6 +1071,20 @@ function p_chaincall(x, s)
     end
     t
 end
+#
+# ColonOpCall
+function p_coloncall(x, s)
+    t = PTree(x, nspaces(s))
+    for a in x
+        if a.typ === CSTParser.BinaryOpCall
+            n = p_binarycall(a, s, nonest = true, nospace = true)
+        else
+            n = pretty(a, s)
+        end
+        add_node!(t, n, s, join_lines = true)
+    end
+    t
+end
 
 # CSTParser.Kw
 function p_kw(x, s)
@@ -1163,21 +1180,20 @@ function p_binarycall(x, s; nonest = false, nospace = false)
 
     if op.fullspan == 0 && x.args[3].typ === CSTParser.IDENTIFIER
         # do nothing
-    elseif (CSTParser.precedence(op) in (8, 13, 14, 16) && op.kind !== Tokens.ANON_FUNC) ||
-           nospace
-        add_node!(t, pretty(op, s), s, join_lines = true)
     elseif op.kind === Tokens.EX_OR
         add_node!(t, Whitespace(1), s)
         add_node!(t, pretty(op, s), s, join_lines = true)
-    elseif nest
+    elseif op.kind === Tokens.CIRCUMFLEX_ACCENT && op.dot
         add_node!(t, Whitespace(1), s)
         add_node!(t, pretty(op, s), s, join_lines = true)
-        # for newline
-        add_node!(t, Placeholder(1), s)
+        nest ? add_node!(t, Placeholder(1), s) : add_node!(t, Whitespace(1), s)
+    elseif nospace ||
+           (CSTParser.precedence(op) in (8, 13, 14, 16) && op.kind !== Tokens.ANON_FUNC)
+        add_node!(t, pretty(op, s), s, join_lines = true)
     else
         add_node!(t, Whitespace(1), s)
         add_node!(t, pretty(op, s), s, join_lines = true)
-        add_node!(t, Whitespace(1), s)
+        nest ? add_node!(t, Placeholder(1), s) : add_node!(t, Whitespace(1), s)
     end
 
 
@@ -1535,7 +1551,7 @@ function p_vcat(x, s)
         elseif !is_closer(a) && i > st
             add_node!(t, n, s, join_lines = true)
             if i != length(x) - 1
-                add_node!(t, Semicolon(), s)
+                has_semicolon(s.doc, n.startline) && add_node!(t, TrailingSemicolon(), s)
                 add_node!(t, Placeholder(1), s)
             # Keep trailing semicolon if there's only one arg
             elseif !multi_arg
