@@ -242,6 +242,14 @@ end
         @test fmt("2a") == "2a"
         @test fmt("2(a+1)") == "2 * (a + 1)"
 
+        str_ = "a[1:2 * num_source * num_dump-1]"
+        str = "a[1:2*num_source*num_dump-1]"
+        @test fmt(str_, 4, 1) == str
+
+        str_ = "a[2 * num_source * num_dump-1:1]"
+        str = "a[2*num_source*num_dump-1:1]"
+        @test fmt(str_, 4, 1) == str
+
         str = "!(typ <: ArithmeticTypes)"
         @test fmt(str) == str
 
@@ -257,21 +265,29 @@ end
             end"""
         @test fmt(str_) == str
 
-        str_ = """foo() = begin body end"""
+        str_ = """
+        foo() = begin
+            body
+        end"""
         str = """
         foo() =
             begin
                 body
             end"""
-        @test fmt(str_) == str
+        @test fmt(str_) == str_
+        @test fmt(str_, 4, 1) == str
 
-        str_ = """foo() = quote body end"""
+        str_ = """
+        foo() = quote
+            body
+        end"""
         str = """
         foo() =
             quote
                 body
             end"""
-        @test fmt(str_) == str
+        @test fmt(str_) == str_
+        @test fmt(str_, 4, 1) == str
 
         str = """foo() = :(Union{})"""
         @test fmt(str) == str
@@ -326,18 +342,16 @@ end
 
         str_ = """foo = begin body end"""
         str = """
-        foo =
-          begin
-            body
-          end"""
+        foo = begin
+          body
+        end"""
         @test fmt(str_, 2, 1) == str
 
         str_ = """foo = quote body end"""
         str = """
-        foo =
-          quote
-            body
-          end"""
+        foo = quote
+          body
+        end"""
         @test fmt(str_, 2, 1) == str
 
         str_ = """foo = for i=1:10 body end"""
@@ -375,6 +389,12 @@ end
             body
           end"""
         @test fmt(str_, 2, 1) == str
+
+        str = """
+        foo = let
+          body
+        end"""
+        @test fmt(str, 2, 1) == str
 
         str_ = """a, b = cond ? e1 : e2"""
         str = """
