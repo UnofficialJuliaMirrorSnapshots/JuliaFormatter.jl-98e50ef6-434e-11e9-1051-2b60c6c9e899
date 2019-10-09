@@ -1,16 +1,19 @@
 # fmt
-import JuliaFormatter
+using JuliaFormatter
 using CSTParser
 using Test
 
-fmt1(s, i = 4, m = 80) = JuliaFormatter.format_text(s, indent = i, margin = m)
+fmt1(s, i, m, always_for_in) =
+    JuliaFormatter.format_text(s, indent = i, margin = m, always_for_in = always_for_in)
 
 # Verifies formatting the formatted text
 # results in the same output
-function fmt(s, i = 4, m = 80)
-    s1 = fmt1(s, i, m)
-    fmt1(s1, i, m)
+function fmt(s; i = 4, m = 80, always_for_in = false)
+    s1 = fmt1(s, i, m, always_for_in)
+    fmt1(s1, i, m, always_for_in)
 end
+fmt(s, i, m) = fmt(s; i = i, m = m)
+fmt1(s, i, m) = fmt1(s; i = i, m = m)
 
 function run_pretty(text::String, print_width::Int)
     d = JuliaFormatter.Document(text)
@@ -158,6 +161,56 @@ end
         str_ = "((i,j) for i in 1:2:10,j  in 100:-1:10)"
         str = "((i, j) for i = 1:2:10, j = 100:-1:10)"
         @test fmt(str_) == str
+    end
+
+    @testset "always eq to in" begin
+        str_ = """
+        for i = 1:n
+            println(i)
+        end"""
+        str = """
+        for i in 1:n
+            println(i)
+        end"""
+        @test fmt(str_, always_for_in = true) == str
+        @test fmt(str, always_for_in = true) == str
+
+        str_ = """
+        for i = I1, j in I2
+            println(i, j)
+        end"""
+        str = """
+        for i in I1, j in I2
+            println(i, j)
+        end"""
+        @test fmt(str_, always_for_in = true) == str
+        @test fmt(str, always_for_in = true) == str
+
+        str_ = """
+        for i = 1:30, j = 100:-2:1
+            println(i, j)
+        end"""
+        str = """
+        for i in 1:30, j in 100:-2:1
+            println(i, j)
+        end"""
+        @test fmt(str_, always_for_in = true) == str
+        @test fmt(str, always_for_in = true) == str
+
+        str_ = "[(i,j) for i=I1,j=I2]"
+        str = "[(i, j) for i in I1, j in I2]"
+        @test fmt(str_, always_for_in = true) == str
+        @test fmt(str, always_for_in = true) == str
+
+        str_ = "((i,j) for i=I1,j=I2)"
+        str = "((i, j) for i in I1, j in I2)"
+        @test fmt(str_, always_for_in = true) == str
+        @test fmt(str, always_for_in = true) == str
+
+        str_ = "[(i, j) for i = 1:2:10, j = 100:-1:10]"
+        str = "[(i, j) for i in 1:2:10, j in 100:-1:10]"
+        @test fmt(str_, always_for_in = true) == str
+        @test fmt(str, always_for_in = true) == str
     end
 
     @testset "tuples" begin
@@ -434,6 +487,7 @@ end
         @test fmt("func(a  ,b; c)") == "func(a, b; c)"
         @test fmt("func(a=1,b; c=1)") == "func(a = 1, b; c = 1)"
         @test fmt("func(; c = 1)", 4, 1) == "func(; c = 1)"
+        @test fmt("func(; c = 1,)") == "func(; c = 1)"
     end
 
     @testset "begin" begin
@@ -588,23 +642,22 @@ end
             body
         end"""
         str = """
-        model =
-            SDDP.LinearPolicyGraph(
-                stages = 2,
-                lower_bound = 1,
-                direct_mode = false,
-            ) do (
-                subproblem1,
-                subproblem2,
-                subproblem3,
-                subproblem4,
-                subproblem5,
-                subproblem6,
-                subproblem7,
-                subproblem8,
-            )
-                body
-            end"""
+        model = SDDP.LinearPolicyGraph(
+            stages = 2,
+            lower_bound = 1,
+            direct_mode = false,
+        ) do (
+            subproblem1,
+            subproblem2,
+            subproblem3,
+            subproblem4,
+            subproblem5,
+            subproblem6,
+            subproblem7,
+            subproblem8,
+        )
+            body
+        end"""
         @test fmt(str_) == str
 
         str_ = """
@@ -612,14 +665,13 @@ end
             body
         end"""
         str = """
-        model =
-            SDDP.LinearPolicyGraph(
-                stages = 2,
-                lower_bound = 1,
-                direct_mode = false,
-            ) do subproblem1, subproblem2
-                body
-            end"""
+        model = SDDP.LinearPolicyGraph(
+            stages = 2,
+            lower_bound = 1,
+            direct_mode = false,
+        ) do subproblem1, subproblem2
+            body
+        end"""
         @test fmt(str_) == str
 
     end
@@ -1764,6 +1816,7 @@ end
         @test fmt(str) == str
 
         @test fmt("ref[a: (b + c)]") == "ref[a:(b+c)]"
+        @test fmt("ref[a in b]") == "ref[a in b]"
     end
 
     @testset "nesting" begin
@@ -1906,15 +1959,24 @@ end
         @test fmt("foo() = (one, x -> (true, false))", 4, 30) == str
 
         str = """
-        foo() =
-            (
-             one,
-             x -> (
-                 true,
-                 false,
-             ),
-            )"""
+        foo() = (
+            one,
+            x -> (
+                true,
+                false,
+            ),
+        )"""
         @test fmt("foo() = (one, x -> (true, false))", 4, 20) == str
+
+        str = """
+        foo() = (
+                 one,
+                 x -> (
+                       true,
+                       false,
+                 ),
+        )"""
+        @test fmt("foo() = (one, x -> (true, false))", 10, 20) == str
 
         str = """
         @somemacro function (fcall_ | fcall_)
@@ -2629,6 +2691,17 @@ end
         """) == "1.0 + 2.0\n"
     end
 
+    @testset "Leading zeros" begin
+        @test fmt(".1") == "0.1"
+        @test fmt("a * .1 + b") == "a * 0.1 + b"
+        @test fmt(".1 + .2 * im") == "0.1 + 0.2 * im"
+        @test fmt("[.1, .2]") == "[0.1, 0.2]"
+        @test fmt("""
+        .1 +
+            .2
+        """) == "0.1 + 0.2\n"
+    end
+
     # https://github.com/domluna/JuliaFormatter.jl/issues/77
     @testset "issue 77" begin
         str_ = """
@@ -2711,10 +2784,5 @@ end
         ]"""
         @test fmt(str) == str
     end
-
-# @testset "meta-format" begin
-#     str = String(read("./runtests.jl"))
-#     str = fmt(str)
-# end
 
 end

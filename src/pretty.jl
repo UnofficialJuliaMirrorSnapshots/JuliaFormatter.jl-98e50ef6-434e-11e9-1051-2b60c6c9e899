@@ -203,20 +203,18 @@ function is_prev_newline(x::PTree)
 end
 
 """
-`length_to_newline` returns the length to the next NEWLINE or PLACEHOLDER node
+    `length_to(x::PTree, ntyps; start::Int = 1)`
 
-based off the `start` index.
+Returns the length to any node type in `ntyps` based off the `start` index.
 """
-function length_to_newline(x::PTree, start = 1)
-    x.typ === NEWLINE && (return 0, true)
-    x.typ === PLACEHOLDER && (return 0, true)
-    is_leaf(x) && (return length(x), false)
+function length_to(x::PTree, ntyps; start::Int = 1)
+    x.typ in ntyps && return 0, true
+    is_leaf(x) && return length(x), false
     len = 0
     for i = start:length(x.nodes)
-        n = x.nodes[i]
-        ln, nl = length_to_newline(n)
-        len += ln
-        nl && (return len, nl)
+        l, found = length_to(x.nodes[i], ntyps)
+        len += l
+        found && return len, found
     end
     return len, false
 end
@@ -444,6 +442,8 @@ function p_literal(x, s)
         if x.kind === Tokens.FLOAT && x.val[end] == '.'
             # If a floating point ends in `.`, add trailing zero.
             val *= '0'
+        elseif x.kind === Tokens.FLOAT && x.val[1] == '.'
+            val = '0' * val
         end
         s.offset += x.fullspan
         return PTree(x, loc[1], loc[1], val)
@@ -883,10 +883,16 @@ end
 # for i = 1:10 body end
 #
 # https://github.com/domluna/JuliaFormatter.jl/issues/34
-function eq_to_in_normalization!(x)
+function eq_to_in_normalization!(x, always_for_in)
     if x.typ === CSTParser.BinaryOpCall
         op = x.args[2]
         arg2 = x.args[3]
+
+        if always_for_in
+            x.args[2].kind = Tokens.IN
+            return
+        end
+
         if op.kind === Tokens.EQ && !is_colon_op(arg2)
             x.args[2].kind = Tokens.IN
         elseif op.kind === Tokens.IN && is_colon_op(arg2)
@@ -894,7 +900,7 @@ function eq_to_in_normalization!(x)
         end
     elseif x.typ === CSTParser.Block || x.typ === CSTParser.InvisBrackets
         for a in x.args
-            eq_to_in_normalization!(a)
+            eq_to_in_normalization!(a, always_for_in)
         end
     end
 end
@@ -905,7 +911,7 @@ function p_loop(x, s)
     add_node!(t, pretty(x.args[1], s), s)
     add_node!(t, Whitespace(1), s)
     if x.args[1].kind === Tokens.FOR
-        eq_to_in_normalization!(x.args[2])
+        eq_to_in_normalization!(x.args[2], s.always_for_in)
     end
     add_node!(t, pretty(x.args[2], s), s, join_lines = true)
     s.indent += s.indent_size
@@ -1112,13 +1118,13 @@ block_type(x::CSTParser.EXPR) =
 nest_assignment(x::CSTParser.EXPR) = CSTParser.is_assignment(x) && block_type(x.args[3])
 
 function nestable(x::CSTParser.EXPR)
-    CSTParser.defines_function(x) && (return true)
-    CSTParser.is_assignment(x) && (return block_type(x.args[3]))
+    CSTParser.defines_function(x) && return true
+    CSTParser.is_assignment(x) && return block_type(x.args[3])
 
     op = x.args[2]
-    op.kind === Tokens.ANON_FUNC && (return false)
-    op.kind === Tokens.PAIR_ARROW && (return false)
-    CSTParser.precedence(op) in (1, 6) && (return false)
+    op.kind === Tokens.ANON_FUNC && return false
+    op.kind === Tokens.PAIR_ARROW && return false
+    CSTParser.precedence(op) in (1, 6) && return false
     if op.kind == Tokens.LAZY_AND || op.kind == Tokens.LAZY_OR
         arg = x.args[1]
         while arg.typ === CSTParser.InvisBrackets
@@ -1188,8 +1194,8 @@ function p_binarycall(x, s; nonest = false, nospace = false)
         add_node!(t, Whitespace(1), s)
         add_node!(t, pretty(op, s), s, join_lines = true)
         nest ? add_node!(t, Placeholder(1), s) : add_node!(t, Whitespace(1), s)
-    elseif nospace ||
-           (CSTParser.precedence(op) in (8, 13, 14, 16) && op.kind !== Tokens.ANON_FUNC)
+    elseif (nospace || (CSTParser.precedence(op) in (8, 13, 14, 16) &&
+             op.kind !== Tokens.ANON_FUNC)) && op.kind !== Tokens.IN
         add_node!(t, pretty(op, s), s, join_lines = true)
     else
         add_node!(t, Whitespace(1), s)
@@ -1332,12 +1338,7 @@ function p_call(x, s)
 
     for (i, a) in enumerate(x.args[3:end])
         if i + 2 == length(x) && multi_arg
-            pn = x.args[i+1]
-            if pn.typ !== CSTParser.Parameters
-                add_node!(t, TrailingComma(), s)
-            elseif pn.typ === CSTParser.Parameters && !CSTParser.is_comma(pn.args[end])
-                add_node!(t, TrailingComma(), s)
-            end
+            add_node!(t, TrailingComma(), s)
             add_node!(t, Placeholder(0), s)
             add_node!(t, pretty(a, s), s, join_lines = true)
         elseif CSTParser.is_comma(a) && i < length(x) - 3 && !is_punc(x.args[i+3])
@@ -1474,7 +1475,9 @@ function p_params(x, s)
     t = PTree(x, nspaces(s))
     for (i, a) in enumerate(x)
         n = pretty(a, s)
-        if CSTParser.is_comma(a) && i < length(x) && !is_punc(x.args[i+1])
+        if i == length(x) && CSTParser.is_comma(a)
+            # do nothing
+        elseif CSTParser.is_comma(a) && i < length(x) && !is_punc(x.args[i+1])
             add_node!(t, n, s, join_lines = true)
             add_node!(t, Placeholder(1), s)
         else
@@ -1611,7 +1614,7 @@ function p_comprehension(x, s)
             add_node!(t, Whitespace(1), s)
             if a.kind === Tokens.FOR
                 for j = i+1:length(x)
-                    eq_to_in_normalization!(x.args[j])
+                    eq_to_in_normalization!(x.args[j], s.always_for_in)
                 end
             end
         elseif CSTParser.is_comma(a) && i < length(x) && !is_punc(x.args[i+1])
