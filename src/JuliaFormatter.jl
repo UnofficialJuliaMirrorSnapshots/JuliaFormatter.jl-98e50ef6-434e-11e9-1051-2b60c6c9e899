@@ -8,6 +8,9 @@ export format, format_text, format_file, format_dir
 is_str_or_cmd(x::Tokens.Kind) =
     x in (Tokens.CMD, Tokens.TRIPLE_CMD, Tokens.STRING, Tokens.TRIPLE_STRING)
 
+# on Windows lines can end in "\r\n"
+normalize_line_ending(s::AbstractString) = replace(s, "\r\n" => "\n")
+
 struct Document
     text::AbstractString
 
@@ -43,6 +46,7 @@ function Document(text::AbstractString)
     str = ""
 
     for t in CSTParser.Tokenize.tokenize(text)
+        # @info "token" t
         if t.kind === Tokens.WHITESPACE
             offset = t.startbyte
             for c in t.val
@@ -79,7 +83,12 @@ function Document(text::AbstractString)
                 # Determine the number of spaces prior to a possible inline comment
                 comments[t.startpos[1]] = (ws, t.val)
             else
-                sl = t.startpos[1]
+                # multiline comment of the form
+                # #=
+                #
+                # #=
+
+                line = t.startpos[1]
                 offset = t.startbyte
                 cs = ""
                 for (i, c) in enumerate(t.val)
@@ -87,14 +96,17 @@ function Document(text::AbstractString)
                     if c == '\n'
                         s = length(ranges) > 0 ? last(ranges[end]) + 1 : 1
                         push!(ranges, s:offset+1)
-                        comments[sl] = (ws, cs)
-                        sl += 1
+                        fc = findfirst(c -> !isspace(c), cs)
+                        idx = fc === nothing ? 1 : min(fc, ws + 1)
+                        comments[line] = (ws, cs[idx:end])
+                        line += 1
                         cs = ""
                     end
                     offset += 1
                 end
                 # last comment
-                comments[sl] = (ws, cs)
+                idx = min(findfirst(c -> !isspace(c), cs), ws + 1)
+                comments[line] = (ws, cs[idx:end])
             end
 
             # There should not be more than 1 
@@ -105,6 +117,10 @@ function Document(text::AbstractString)
             # If "#! format: off" has not been seen
             # "#! format: on" is treated as a normal comment.
             elseif occursin(r"^#!\s*format\s*:\s*on\s*$", t.val) && length(stack) > 0
+                idx1 = findfirst(c -> c == '\n', str)
+                idx2 = findlast(c -> c == '\n', str)
+                str = str[idx1:idx2]
+                # @info "format skip str" str
                 push!(format_skips, (pop!(stack), t.startpos[1], str))
                 str = ""
                 format_on = true
@@ -128,9 +144,11 @@ function Document(text::AbstractString)
     if length(stack) == 1 && length(format_skips) == 0
         # -1 signifies everything afterwards "#! format: off"
         # will not formatted.
+        idx1 = findfirst(c -> c == '\n', str)
+        str = str[idx1:end]
         push!(format_skips, (stack[1], -1, str))
     end
-    # @info "" format_skips
+    # @info "" lit_strings
     Document(text, ranges, line_to_range, lit_strings, comments, semicolons, format_skips)
 end
 
@@ -221,9 +239,10 @@ function format_text(
     print_tree(io, t, s)
 
     text = String(take!(io))
+    text = normalize_line_ending(text)
 
     _, ps = CSTParser.parse(CSTParser.ParseState(text), true)
-    ps.errored && error("Parsing error for formatted $text")
+    ps.errored && error("Parsing error for formatted text:\n\n $text")
     return text
 end
 
@@ -268,8 +287,9 @@ function format_file(
         error("$filename must be a Julia (.jl) source file")
     end
     verbose && println("Formatting $filename with indent = $indent, margin = $margin")
-    str = read(filename) |> String
+    str = String(read(filename))
     str = format_text(str, indent = indent, margin = margin, always_for_in = always_for_in)
+    str = replace(str, r"\n*$" => "\n")
     overwrite ? write(filename, str) : write(path * "_fmt" * ext, str)
     nothing
 end

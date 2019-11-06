@@ -48,8 +48,6 @@ function nest!(nodes::Vector{PTree}, s::State, indent; extra_width = 0)
             s.line_offset = nodes[i+1].indent
         elseif n.typ === NEWLINE
             s.line_offset = indent
-        elseif is_leaf(n)
-            s.line_offset += length(n)
         else
             nest!(n, s, extra_width = extra_width)
         end
@@ -182,8 +180,8 @@ end
 function n_tuple!(x, s; extra_width = 0)
     line_width = s.line_offset + length(x) + extra_width
     idx = findlast(n -> n.typ === PLACEHOLDER, x.nodes)
-    opener = is_opener(x.nodes[1])
     # @info "ENTERING" idx x.typ s.line_offset length(x) extra_width
+    opener = length(x.nodes) > 0 ? is_opener(x.nodes[1]) : false
     if idx !== nothing && (line_width > s.margin || x.force_nest)
         if opener
             x.nodes[end].indent = x.indent
@@ -245,7 +243,12 @@ function n_stringh!(x, s; extra_width = 0)
 end
 
 function n_for!(x, s; extra_width = 0)
-    ph_idx = findfirst(n -> n.typ === PLACEHOLDER, x.nodes[3].nodes)
+    block_idx = findfirst(n -> !is_leaf(n), x.nodes)
+    if block_idx === nothing
+        nest!(x.nodes, s, x.indent, extra_width = extra_width)
+        return
+    end
+    ph_idx = findfirst(n -> n.typ === PLACEHOLDER, x.nodes[block_idx].nodes)
     nest!(x.nodes, s, x.indent, extra_width = extra_width)
 
     # return if the argument block was nested
@@ -567,7 +570,7 @@ function n_binarycall!(x, s; extra_width = 0)
         end
 
         # @info "" return_width
-        # @debug "" s.line_offset return_width length(x.nodes[1])
+        # @info "" s.line_offset return_width length(x.nodes[1])
 
         for (i, n) in enumerate(x.nodes)
             if n.typ === NEWLINE

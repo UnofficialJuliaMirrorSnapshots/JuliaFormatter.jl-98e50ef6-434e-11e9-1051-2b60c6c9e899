@@ -1,4 +1,3 @@
-# fmt
 using JuliaFormatter
 using CSTParser
 using Test
@@ -41,9 +40,12 @@ end
         @test fmt("#foo") == "#foo"
 
         str = """
-        #=
-        Hello, world!
-        =#"""
+        begin
+            #=
+               Hello, world!
+             =#
+        end
+        """
         @test fmt(str) == str
 
         str = """
@@ -59,6 +61,26 @@ end
         @test fmt(str) == str
 
         str = "#! format: off\n#! format: on"
+        @test fmt(str) == str
+
+        str = """
+        begin
+            #! format: off
+            don't
+                  format
+                         this
+            #! format: on
+        end"""
+        @test fmt(str) == str
+
+        str = """
+        begin
+            #! format: off
+            # don't
+            #     format
+            #            this
+            #! format: on
+        end"""
         @test fmt(str) == str
 
         str = """
@@ -380,6 +402,18 @@ end
     @testset "unary ops" begin
         @test fmt("! x") == "!x"
         @test fmt("x ...") == "x..."
+
+        # Issue 110
+        str = raw"""
+        if x
+            if y
+                :($lhs = fffffffffffffffffffffff(
+                    xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,
+                    yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy,
+                ))
+            end
+        end"""
+        @test fmt(str) == str
     end
 
     @testset "binary ops" begin
@@ -603,6 +637,7 @@ end
         @test fmt("func(a=1,b; c=1)") == "func(a = 1, b; c = 1)"
         @test fmt("func(; c = 1)", 4, 1) == "func(; c = 1)"
         @test fmt("func(; c = 1,)") == "func(; c = 1)"
+        @test fmt("func(a;)") == "func(a;)"
     end
 
     @testset "begin" begin
@@ -1315,6 +1350,9 @@ end
                   arg
               end\"""
         """
+        @test fmt(str) == str
+
+        str = raw"""@test :(x`s`flag) == :(@x_cmd "s" "flag")"""
         @test fmt(str) == str
     end
 
@@ -2544,7 +2582,7 @@ end
                 body2
                 @Expr :break loop_exit2
                 body3
-            end,
+            end
         )"""
         @test fmt(str_, 4, 20) == str
 
@@ -2586,7 +2624,7 @@ end
           a,
           @g(
              b,
-             c,
+             c
           ),
           d,
         )"""
@@ -2949,6 +2987,67 @@ end
         end"""
         @test fmt(str, 4, 1) == str_
         @test fmt(str_) == str
+
+        str = """
+        let
+            # comment
+            list = [1, 2, 3]
+
+            body
+        end"""
+        @test fmt(str) == str
     end
+
+    @testset "single newline at end of file" begin
+        str = "a = 10\n"
+
+        f1 = tempname() * ".jl"
+        open(f1, "w") do io
+            write(io, "a = 10\n\n\n\n\n\n")
+        end
+        format_file(f1)
+        format_file(f1)
+        open(f1) do io
+            res = read(io, String)
+            @test res == str
+        end
+        rm(f1)
+    end
+
+    @testset "trailing comma - breaking cases" begin
+        # A trailing comma here is ambiguous
+        # It'll cause a parsing error.
+        str = """
+        gen2 = Iterators.filter(
+            x -> x[1] % 2 == 0 && x[2] % 2 == 0,
+            (x, y) for x = 1:10, y = 1:10
+        )"""
+        str_ = "gen2 = Iterators.filter(x -> x[1] % 2 == 0 && x[2] % 2 == 0, (x, y) for x = 1:10, y = 1:10)"
+
+        @test fmt(str_, 4, 80) == str
+
+        # With macro calls, a trailing comma can
+        # change the semantics of the macro.
+        #
+        # Keeping this in mind it should not be
+        # automatically added.
+        str = """
+        @func(
+            a,
+            b,
+            c
+        )"""
+        @test fmt("@func(a, b, c)", 4, 1) == str
+
+        str = """
+        @func(
+            a,
+            b,
+            c,
+        )"""
+        @test fmt("@func(a, b, c,)", 4, 1) == str
+
+    end
+
 
 end
