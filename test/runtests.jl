@@ -2,7 +2,7 @@ using JuliaFormatter
 using CSTParser
 using Test
 
-fmt1(s, i, m, always_for_in) =
+fmt1(s, i = 4, m = 80, always_for_in = false) =
     JuliaFormatter.format_text(s, indent = i, margin = m, always_for_in = always_for_in)
 
 # Verifies formatting the formatted text
@@ -348,6 +348,7 @@ end
     end
 
     @testset "tuples" begin
+        @test fmt("(a,)") == "(a,)"
         @test fmt("a,b") == "a, b"
         @test fmt("a ,b") == "a, b"
         @test fmt("(a,b)") == "(a, b)"
@@ -407,10 +408,12 @@ end
         str = raw"""
         if x
             if y
-                :($lhs = fffffffffffffffffffffff(
-                    xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,
-                    yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy,
-                ))
+                :(
+                  $lhs = fffffffffffffffffffffff(
+                      xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,
+                      yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy,
+                  )
+                )
             end
         end"""
         @test fmt(str) == str
@@ -544,22 +547,39 @@ end
         foo = begin
           body
         end"""
-        @test fmt(str_, 2, 1) == str
+        @test fmt(str_, 2, 11) == str
+        str = """
+        foo =
+          begin
+            body
+          end"""
+        @test fmt(str_, 2, 10) == str
 
         str_ = """foo = quote body end"""
         str = """
         foo = quote
           body
         end"""
-        @test fmt(str_, 2, 1) == str
+        @test fmt(str_, 2, 11) == str
+        str = """
+        foo =
+          quote
+            body
+          end"""
+        @test fmt(str_, 2, 10) == str
 
         str_ = """foo = for i=1:10 body end"""
+        str = """
+        foo = for i = 1:10
+          body
+        end"""
+        @test fmt(str_, 2, 18) == str
         str = """
         foo =
           for i = 1:10
             body
           end"""
-        @test fmt(str_, 2, 1) == str
+        @test fmt(str_, 2, 17) == str
 
         str_ = """foo = while cond body end"""
         str = """
@@ -584,32 +604,233 @@ end
         str_ = """foo = let var1=value1,var2,var3=value3 body end"""
         str = """
         foo =
+          let var1 = value1, var2, var3 = value3
+            body
+          end"""
+        @test fmt(str_, 2, 43) == str
+        @test fmt(str_, 2, 40) == str
+
+        str = """
+        foo =
           let var1 = value1,
               var2,
               var3 = value3
 
             body
           end"""
-        @test fmt(str_, 2, 1) == str
+        @test fmt(str_, 2, 39) == str
+
 
         str = """
+        foo =
+          let var1 =
+                value1,
+              var2,
+              var3 =
+                value3
+
+            body
+          end"""
+        @test fmt(str_, 2, 19) == str
+        @test fmt(str_, 2, 1) == str
+
+        str_ = """
         foo = let
           body
         end"""
-        @test fmt(str, 2, 1) == str
+        @test fmt(str_, 2, 9) == str_
+        str = """
+        foo =
+          let
+            body
+          end"""
+        @test fmt(str_, 2, 8) == str
+        @test fmt(str_, 2, 1) == str
 
         str_ = """a, b = cond ? e1 : e2"""
         str = """
         a, b = cond ?
-               e1 :
-               e2"""
+            e1 : e2"""
         @test fmt(str_, 4, 13) == str
 
         str = """
-        a,
-        b = cond ?
+        a, b =
+            cond ?
             e1 : e2"""
         @test fmt(str_, 4, 12) == str
+
+        str = """
+        begin
+            variable_name =
+                argument1 + argument2
+        end"""
+        @test fmt(str, 4, 40) == str
+
+        str = """
+        begin
+            variable_name =
+                argument1 +
+                argument2
+        end"""
+        @test fmt(str, 4, 28) == str
+
+        str = """
+        begin
+            variable_name =
+                conditional ? expression1 : expression2
+        end"""
+        @test fmt(str, 4, 58) == str
+
+        str = """
+        begin
+            variable_name =
+                conditional ? expression1 :
+                expression2
+        end"""
+        @test fmt(str, 4, 46) == str
+
+        str = """
+        begin
+            variable_name = conditional ?
+                expression1 : expression2
+        end"""
+        @test fmt(str, 4, 34) == str
+
+        str = """
+        begin
+            variable_name =
+                conditional ?
+                expression1 :
+                expression2
+        end"""
+        @test fmt(str, 4, 32) == str
+
+        str = "shmem[pout*rows+row] += shmem[pin*rows+row] + shmem[pin*rows+row-offset]"
+
+        str_ = """
+        shmem[pout*rows+row] +=
+               shmem[pin*rows+row] + shmem[pin*rows+row-offset]"""
+        @test fmt(str, 7, 71) == str_
+        str_ = """
+        shmem[pout*rows+row] +=
+               shmem[pin*rows+row] +
+               shmem[pin*rows+row-offset]"""
+        @test fmt(str, 7, 54) == str_
+
+        str = """
+        begin
+           var = func(arg1, arg2, arg3) * num
+        end"""
+        @test fmt(str, 3, 37) == str
+
+        str_ = """
+        begin
+           var =
+              func(arg1, arg2, arg3) * num
+        end"""
+        @test fmt(str, 3, 36) == str_
+        @test fmt(str, 3, 34) == str_
+
+        str_ = """
+        begin
+           var =
+              func(arg1, arg2, arg3) *
+              num
+        end"""
+        @test fmt(str, 3, 33) == str_
+        @test fmt(str, 3, 30) == str_
+
+        str_ = """
+        begin
+           var =
+              func(
+                 arg1,
+                 arg2,
+                 arg3,
+              ) * num
+        end"""
+        @test fmt(str, 3, 29) == str_
+
+        str_ = """
+        begin
+           var =
+              func(
+                 arg1,
+                 arg2,
+                 arg3,
+              ) *
+              num
+        end"""
+        @test fmt(str, 3, 1) == str_
+
+        str = """
+        begin
+            foo() =
+                (one, x -> (true, false))
+        end"""
+        @test fmt(str, 4, 36) == str
+        @test fmt(str, 4, 33) == str
+
+        str = """
+        begin
+            foo() = 
+                (
+                 one,
+                 x -> (true, false),
+                )
+        end"""
+        str = """
+        begin
+            foo() = (
+                one,
+                x -> (true, false),
+            )
+        end"""
+        @test fmt(str, 4, 32) == str
+        @test fmt(str, 4, 28) == str
+
+        str = """
+        begin
+                  foo() = (
+                           one,
+                           x -> (
+                                 true,
+                                 false,
+                           ),
+                  )
+        end"""
+        @test fmt(str, 10, 39) == str
+
+        str = """
+        ignored_f(f) = f in (
+            GlobalRef(Base, :not_int),
+            GlobalRef(Core.Intrinsics, :not_int),
+            GlobalRef(Core, :(===)),
+            GlobalRef(Core, :apply_type),
+            GlobalRef(Core, :typeof),
+            GlobalRef(Core, :throw),
+            GlobalRef(Base, :kwerr),
+            GlobalRef(Core, :kwfunc),
+            GlobalRef(Core, :isdefined),
+        )"""
+        @test fmt(str) == str
+
+        str = """
+        ignored_f(f) = f in (foo(@foo(foo(
+            GlobalRef(Base, :not_int),
+            GlobalRef(Core.Intrinsics, :not_int),
+            GlobalRef(Core, :(===)),
+            GlobalRef(Core, :apply_type),
+            GlobalRef(Core, :typeof),
+            GlobalRef(Core, :throw),
+            GlobalRef(Base, :kwerr),
+            GlobalRef(Core, :kwfunc),
+            GlobalRef(Core, :isdefined),
+        ))))"""
+        @test fmt(str) == str
+
+        str = "var = \"a_long_function_stringggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg\""
+        fmt(str, 4, 1) == str
     end
 
     @testset "op chain" begin
@@ -635,7 +856,13 @@ end
         @test fmt("func(  a, b; c)") == "func(a, b; c)"
         @test fmt("func(a  ,b; c)") == "func(a, b; c)"
         @test fmt("func(a=1,b; c=1)") == "func(a = 1, b; c = 1)"
-        @test fmt("func(; c = 1)", 4, 1) == "func(; c = 1)"
+
+        str = """
+        func(;
+          c = 1,
+        )"""
+        @test fmt("func(; c = 1)", 2, 1) == str
+
         @test fmt("func(; c = 1,)") == "func(; c = 1)"
         @test fmt("func(a;)") == "func(a;)"
 
@@ -675,9 +902,13 @@ end
         @test fmt(str_) == str_
         @test fmt(str_, 4, 1) == str
 
-        str = "@f(; x)"
-        @test fmt(str) == str
-        @test fmt(str, 4, 1) == str
+        str = """
+        @f(;
+          x
+        )"""
+        str_ = "@f(; x)"
+        @test fmt(str_) == str_
+        @test fmt(str_, 2, 1) == str
 
         str = """
         @f(;
@@ -832,13 +1063,10 @@ end
 
         str = """
         map(1:10, 11:20) do x, y
-            x + y + foo + bar + ba
-            x + y + foo + bar +
-            baz
+            z = reallylongvariablename
         end"""
         t = run_pretty(str, 80)
-        @test length(t) == 27
-        @test fmt(str, 4, 26) == str
+        @test length(t) == 30
 
         # issue #58
 
@@ -847,22 +1075,23 @@ end
             body
         end"""
         str = """
-        model = SDDP.LinearPolicyGraph(
-            stages = 2,
-            lower_bound = 1,
-            direct_mode = false,
-        ) do (
-            subproblem1,
-            subproblem2,
-            subproblem3,
-            subproblem4,
-            subproblem5,
-            subproblem6,
-            subproblem7,
-            subproblem8,
-        )
-            body
-        end"""
+        model =
+            SDDP.LinearPolicyGraph(
+                stages = 2,
+                lower_bound = 1,
+                direct_mode = false,
+            ) do (
+                subproblem1,
+                subproblem2,
+                subproblem3,
+                subproblem4,
+                subproblem5,
+                subproblem6,
+                subproblem7,
+                subproblem8,
+            )
+                body
+            end"""
         @test fmt(str_) == str
 
         str_ = """
@@ -870,13 +1099,14 @@ end
             body
         end"""
         str = """
-        model = SDDP.LinearPolicyGraph(
-            stages = 2,
-            lower_bound = 1,
-            direct_mode = false,
-        ) do subproblem1, subproblem2
-            body
-        end"""
+        model =
+            SDDP.LinearPolicyGraph(
+                stages = 2,
+                lower_bound = 1,
+                direct_mode = false,
+            ) do subproblem1, subproblem2
+                body
+            end"""
         @test fmt(str_) == str
 
     end
@@ -1373,8 +1603,8 @@ end
                                 can be created at https://gist.github.com/.\"""))
            end
         end"""
-        @test fmt(str_) == str
-
+        @test fmt(str_, 4, 200) == str
+        @test fmt(str_, 4, 1) == str
 
         str = """
         foo() = llvmcall(\"""
@@ -1382,6 +1612,27 @@ end
                          llvm2
                          \""")"""
         @test fmt(str) == str
+        # nests and then unnests
+        @test fmt(str, 2, 20) == str
+
+        str_ = """
+        foo() =
+          llvmcall(\"""
+                   llvm1
+                   llvm2
+                   \""")"""
+        @test fmt(str, 2, 19) == str_
+
+        # the length calculation is kind of wonky here
+        # but it's still a worthwhile test
+        str_ = """
+        foo() =
+            llvmcall(\"""
+                     llvm1
+                     llvm2
+                     \""")"""
+        @test fmt(str, 4, 19) == str_
+        @test fmt(str, 4, 18) == str_
 
         str_ = """
         foo() =
@@ -1409,6 +1660,18 @@ end
 
         str = raw"""@test :(x`s`flag) == :(@x_cmd "s" "flag")"""
         @test fmt(str) == str
+
+        str = raw"""
+        if free < min_space
+            throw(ErrorException(\"""
+            Free space: \$free Gb
+            Please make sure to have at least \$min_space Gb of free disk space
+            before downloading the $database_name database.
+            \"""))
+        end"""
+        @test fmt(str) == str
+        @test fmt(str, 4, 1) == str
+
     end
 
     @testset "comments" begin
@@ -1905,7 +2168,7 @@ end
                          e8
                      end
                  end"""
-        @test fmt("begin if cond1 e1; e2 elseif cond2 e3; e4 elseif cond3 e5;e6 else e7;e8  end end") == str
+        @test fmt("begin if cond1 e1; e2 elseif cond2 e3; e4 elseif cond3 e5;e6 else e7;e8  end end",) == str
 
         str = """if cond1
                      e1
@@ -2173,30 +2436,6 @@ end
                          b"""
         @test fmt("import M1.M2.M3:a,b", 4, 1) == str
 
-        str = """
-        foo() =
-            (one, x -> (true, false))"""
-        @test fmt("foo() = (one, x -> (true, false))", 4, 30) == str
-
-        str = """
-        foo() = (
-            one,
-            x -> (
-                true,
-                false,
-            ),
-        )"""
-        @test fmt("foo() = (one, x -> (true, false))", 4, 20) == str
-
-        str = """
-        foo() = (
-                 one,
-                 x -> (
-                       true,
-                       false,
-                 ),
-        )"""
-        @test fmt("foo() = (one, x -> (true, false))", 10, 20) == str
 
         str = """
         @somemacro function (fcall_ | fcall_)
@@ -2205,21 +2444,42 @@ end
         @test fmt("@somemacro function (fcall_ | fcall_) body_ end", 4, 37) == str
 
         str = """
-        @somemacro function (fcall_ |
-                             fcall_)
+        @somemacro function (
+            fcall_ | fcall_,
+        )
             body_
         end"""
         @test fmt("@somemacro function (fcall_ | fcall_) body_ end", 4, 36) == str
+        @test fmt("@somemacro function (fcall_ | fcall_) body_ end", 4, 20) == str
+
+        str = """
+        @somemacro function (
+            fcall_ |
+            fcall_,
+        )
+            body_
+        end"""
+        @test fmt("@somemacro function (fcall_ | fcall_) body_ end", 4, 19) == str
 
         str = "Val(x) = (@_pure_meta; Val{x}())"
         @test fmt("Val(x) = (@_pure_meta ; Val{x}())", 4, 80) == str
 
         str = "(a; b; c)"
         @test fmt("(a;b;c)", 4, 100) == str
+
+        str = """
+        (
+         a; b; c
+        )"""
         @test fmt("(a;b;c)", 4, 1) == str
 
         str = "(x for x = 1:10)"
         @test fmt("(x   for x  in  1 : 10)", 4, 100) == str
+
+        str = """
+        (
+         x for x = 1:10
+        )"""
         @test fmt("(x   for x  in  1 : 10)", 4, 1) == str
 
         # indent for TupleH with no parens
@@ -2237,82 +2497,47 @@ end
         end"""
         @test fmt(str, 4, 1) == str
 
-        # don't nest < 2 args
-
-        str = "A where {B}"
-        @test fmt(str, 4, 1) == str
-
-        str = "foo(arg1)"
-        @test fmt(str, 4, 1) == str
-
-        str = "[arg1]"
-        @test fmt(str, 4, 1) == str
-
-        str = "{arg1}"
-        @test fmt(str, 4, 1) == str
-
-        str = "(arg1)"
-        @test fmt(str, 4, 1) == str
-
-        str_ = """
-        begin
-        if foo
-        elseif baz
-        elseif (a || b) && c
-        elseif bar
-        else
-        end
-        end"""
+        str = """
+        A where {
+            B,
+        }"""
+        str_ = "A where {B}"
+        @test fmt(str_) == str_
+        @test fmt(str_, 4, 1) == str
 
         str = """
-        begin
-            if foo
-            elseif baz
-            elseif (a ||
-                    b) && c
-            elseif bar
-            else
-            end
-        end"""
-        @test fmt(str_, 4, 21) == str
-        @test fmt(str_, 4, 19) == str
+        foo(
+          arg1,
+        )"""
+        str_ = "foo(arg1)"
+        @test fmt(str_) == str_
+        @test fmt(str, 2, 1) == str
 
         str = """
-        begin
-            if foo
-            elseif baz
-            elseif (a ||
-                    b) &&
-                   c
-            elseif bar
-            else
-            end
-        end"""
-        @test fmt(str_, 4, 18) == str
+        [
+         arg1,
+        ]"""
+        str_ = "[arg1]"
+        @test fmt(str_) == str_
+        @test fmt(str, 4, 1) == str
 
         str = """
-        begin
-            if foo
-            elseif baz
-            elseif (a || b) &&
-                   c
-            elseif bar
-            else
-            end
-        end"""
-        @test fmt(str_, 4, 23) == str
-        @test fmt(str_, 4, 22) == str
+        {
+         arg1,
+        }"""
+        str_ = "{arg1}"
+        @test fmt(str_) == str_
+        @test fmt(str, 4, 1) == str
 
         str = """
-        begin
-            if foo
-            elseif baz
-            elseif (a || b) && c
-            elseif bar
-            else
-            end
-        end"""
-        @test fmt(str_, 4, 24) == str
+        (
+         arg1
+        )"""
+        str_ = "(arg1)"
+        @test fmt(str_) == str_
+        @test fmt(str_, 4, 1) == str
+
+
 
         # https://github.com/domluna/JuliaFormatter.jl/issues/9#issuecomment-481607068
         str = """
@@ -2329,16 +2554,18 @@ end
                :mesh_dim => Cint(3),)"""
         @test fmt(str_, 4, 80) == str
 
-        str = """this_is_a_long_variable_name = Dict{
-             Symbol,
-             Any,
-        }(
-             :numberofpointattributes => NAttributes,
-             :numberofpointmtrs => NMTr,
-             :numberofcorners => NSimplex,
-             :firstnumber => Cint(1),
-             :mesh_dim => Cint(3),
-        )"""
+        str = """
+        this_is_a_long_variable_name =
+             Dict{
+                  Symbol,
+                  Any,
+             }(
+                  :numberofpointattributes => NAttributes,
+                  :numberofpointmtrs => NMTr,
+                  :numberofcorners => NSimplex,
+                  :firstnumber => Cint(1),
+                  :mesh_dim => Cint(3),
+             )"""
         @test fmt(str_, 5, 1) == str
 
         str = """
@@ -2372,14 +2599,25 @@ end
         @test fmt("begin\n a && b || c && d\nend", 4, 1) == str
 
         str = """
+        func(
+            a,
+            \"""this
+            is another
+            multi-line
+            string.
+            Longest line
+            \""",
+            foo(b, c),
+        )"""
+
+        str_ = """
         func(a, \"""this
                 is another
                 multi-line
                 string.
                 Longest line
                 \""", foo(b, c))"""
-        @test fmt(str, 4, 100) == str
-
+        @test fmt(str_) == str
         str_ = """
         func(
             a,
@@ -2396,18 +2634,6 @@ end
         )"""
         @test fmt(str, 4, 1) == str_
 
-        str = """
-        func(
-            a,
-            \"""this
-            is another
-            multi-line
-            string.
-            Longest line
-            \""",
-            foo(b, c),
-        )"""
-        @test fmt(str, 4, 31) == str
 
 
         # Ref
@@ -2418,39 +2644,29 @@ end
         @test fmt("a[(1 + 2)]", 4, 1) == str
 
         str_ = "(a + b + c + d)"
-        @test fmt(str_, 4, 15) == str_
+        @test fmt(str_, 4, length(str_)) == str_
 
-        str = "(a + b + c +\n d)"
-        @test fmt(str_, 4, 14) == str
-        @test fmt(str_, 4, 12) == str
-
-        str = "(a + b +\n c + d)"
-        @test fmt(str_, 4, 11) == str
-        @test fmt(str_, 4, 8) == str
-
-        str = "(a +\n b +\n c + d)"
-        @test fmt(str_, 4, 7) == str
-
-        str = "(a +\n b +\n c +\n d)"
+        str = """
+        (
+         a +
+         b +
+         c +
+         d
+        )"""
+        @test fmt(str_, 4, length(str_) - 1) == str
         @test fmt(str_, 4, 1) == str
 
         str_ = "(a <= b <= c <= d)"
-        @test fmt(str_, 4, 18) == str_
+        @test fmt(str_, 4, length(str_)) == str_
 
-        str = "(a <= b <= c <=\n d)"
-        @test fmt(str_, 4, 17) == str
-        @test fmt(str_, 4, 15) == str
-
-        str = "(a <= b <=\n c <= d)"
-        @test fmt(str_, 4, 14) == str
-        @test fmt(str_, 4, 10) == str
-
-        str = "(a <=\n b <=\n c <= d)"
-        @test fmt(str_, 4, 9) == str
-        @test fmt(str_, 4, 8) == str
-
-        str = "(a <=\n b <=\n c <=\n d)"
-        @test fmt(str_, 4, 7) == str
+        str = """
+        (
+         a <=
+         b <=
+         c <=
+         d
+        )"""
+        @test fmt(str_, 4, length(str_) - 1) == str
         @test fmt(str_, 4, 1) == str
 
         # https://github.com/domluna/JuliaFormatter.jl/issues/60
@@ -2470,10 +2686,6 @@ end
             body
         end"""
         @test fmt(str_) == str
-
-        # single function kwarg or param should not nest
-        @test fmt("f(;a=1)", 4, 1) == "f(; a = 1)"
-        @test fmt("f(a=1)", 4, 1) == "f(a = 1)"
 
         # any pairing of argument, kawrg, or param should nest
         str = """
@@ -2496,6 +2708,19 @@ end
           b = 2,
         )"""
         @test fmt("f(a=1; b=2)", 4, 1) == str
+
+        str = """
+        begin
+            if foo
+            elseif baz
+            elseif a ||
+                   b &&
+                   c
+            elseif bar
+            else
+            end
+        end"""
+        @test fmt(str, 4, 1) == str
     end
 
     @testset "nesting line offset" begin
@@ -2556,13 +2781,15 @@ end
         # adds surrounding {...} after `where`
         @test s.line_offset == length(str)
         s = run_nest(str, 1)
-        @test s.line_offset == 11
+        @test s.line_offset == 1
 
         str = "f(a, b, c) where {A<:S}"
         s = run_nest(str, 100)
         @test s.line_offset == length(str)
-        s = run_nest(str, 1)
+        s = run_nest(str, length(str) - 1)
         @test s.line_offset == 14
+        s = run_nest(str, 1)
+        @test s.line_offset == 1
 
         str = "f(a, b, c) where Union{A,B,Union{C,D,E}}"
         s = run_nest(str, 100)
@@ -2844,21 +3071,30 @@ end
         @test fmt(str, 4, 52) == str
 
         str_ = "transcode(::Type{THISISONESUPERLONGTYPE1234567}) where {T<:Union{Int32,UInt32}} = transcode(T, String(Vector(src)))"
-        str = """
-        transcode(::Type{THISISONESUPERLONGTYPE1234567}) where {T<:Union{
-          Int32,
-          UInt32,
-        }} = transcode(T, String(Vector(src)))"""
-        @test fmt(str_, 2, 80) == str
-        @test fmt(str_, 2, 38) == str
 
         str = """
-        transcode(::Type{THISISONESUPERLONGTYPE1234567}) where {T<:Union{
-          Int32,
-          UInt32,
-        }} =
+        transcode(
+          ::Type{THISISONESUPERLONGTYPE1234567},
+        ) where {T<:Union{Int32,UInt32}} = transcode(T, String(Vector(src)))"""
+        @test fmt(str_, 2, 80) == str
+        @test fmt(str_, 2, 68) == str
+
+        str = """
+        transcode(
+          ::Type{THISISONESUPERLONGTYPE1234567},
+        ) where {T<:Union{Int32,UInt32}} =
           transcode(T, String(Vector(src)))"""
-        @test fmt(str_, 2, 37) == str
+        @test fmt(str_, 2, 67) == str
+        @test fmt(str_, 2, 40) == str
+
+        str = """
+        transcode(
+          ::Type{
+            THISISONESUPERLONGTYPE1234567,
+          },
+        ) where {T<:Union{Int32,UInt32}} =
+          transcode(T, String(Vector(src)))"""
+        @test fmt(str_, 2, 39) == str
 
         str_ = "transcode(::Type{T}, src::AbstractVector{UInt8}) where {T<:Union{Int32,UInt32}} = transcode(T, String(Vector(src)))"
         str = """
@@ -2887,7 +3123,7 @@ end
             [0.5 0.5; 0.5 0.5],
         ])"""
         @test fmt(str, 4, length(str)) == str_
-        @test fmt(str_) == str
+        @test fmt(str_, 4, length(str_) - 1) == str
 
         # unary op
         str_ = "[1, 1]'"
@@ -3047,8 +3283,19 @@ end
 
             body
         end"""
-        @test fmt(str, 4, 1) == str_
         @test fmt(str_) == str
+
+        str_ = """
+        let a =
+                x,
+            b =
+                y,
+            c =
+                z
+
+            body
+        end"""
+        @test fmt(str, 4, 1) == str_
 
         str = """
         let
@@ -3127,18 +3374,37 @@ end
 
         str = """
         begin
-            weights = Dict((file, i) => w for (file, subject) in subjects
-                for (i, w) in enumerate(weightfn.(eachrow(subject.events))))
+            weights = Dict(
+                (file, i) => w for (file, subject) in subjects
+                for (i, w) in enumerate(weightfn.(eachrow(subject.events)))
+            )
         end"""
         @test fmt(str_, 4, 90) == str
 
         str = """
         begin
-            weights = Dict((file, i) => w
-                for (file, subject) in subjects
-                for (i, w) in enumerate(weightfn.(eachrow(subject.events))))
+            weights = Dict(
+                (file, i) => w for (file, subject) in subjects
+                for (
+                    i,
+                    w,
+                ) in enumerate(weightfn.(eachrow(subject.events)))
+            )
         end"""
         @test fmt(str_, 4, 60) == str
+
+        str = """
+        begin
+            weights = Dict(
+                (file, i) => w
+                for (file, subject) in subjects
+                for (
+                    i,
+                    w,
+                ) in enumerate(weightfn.(eachrow(subject.events)))
+            )
+        end"""
+        @test fmt(str_, 4, 50) == str
     end
 
     @testset "Splitpath issue" begin
@@ -3149,4 +3415,124 @@ end
         @test dirs[end] == "test"
         @test occursin("JuliaFormatter", dirs[end-1])
     end
+
+    @testset "invisbrackets" begin
+        str = """
+        some_function(
+            (((
+               very_very_very_very_very_very_very_very_very_very_very_very_long_function_name(
+                   very_very_very_very_very_very_very_very_very_very_very_very_long_argument,
+                   very_very_very_very_very_very_very_very_very_very_very_very_long_argument,
+               )
+               for x in xs
+            ))),
+            another_argument,
+        )"""
+        @test fmt(str) == str
+
+        str_ = """
+some_function(
+(((
+               very_very_very_very_very_very_very_very_very_very_very_very_long_function_name(
+                   very_very_very_very_very_very_very_very_very_very_very_very_long_argument,
+                   very_very_very_very_very_very_very_very_very_very_very_very_long_argument,
+               )
+               for x in xs
+               ))),
+           another_argument,
+       )"""
+        @test fmt(str_) == str
+
+        str = """
+        if ((
+          aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ||
+          aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ||
+          aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        ))
+          nothing
+        end"""
+        @test fmt(str, 2, 92) == str
+
+        str = """
+        begin
+                if ((
+                     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ||
+                     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ||
+                     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                ))
+                        nothing
+                end
+        end"""
+        @test fmt(str, 8, 92) == str
+
+        #
+        # Don't nest the op if an arg is invisbrackets
+        #
+
+        str_ = """
+        begin
+        if foo
+        elseif baz
+        elseif (a || b) && c
+        elseif bar
+        else
+        end
+        end"""
+
+        str = """
+        begin
+            if foo
+            elseif baz
+            elseif (a || b) && c
+            elseif bar
+            else
+            end
+        end"""
+        @test fmt(str_, 4, 24) == str
+
+        str = """
+        begin
+            if foo
+            elseif baz
+            elseif (
+                a || b
+            ) && c
+            elseif bar
+            else
+            end
+        end"""
+        @test fmt(str_, 4, 23) == str
+        @test fmt(str_, 4, 15) == str
+
+        str = """
+        begin
+            if foo
+            elseif baz
+            elseif (
+                a ||
+                b
+            ) && c
+            elseif bar
+            else
+            end
+        end"""
+        @test fmt(str_, 4, 14) == str
+        @test fmt(str_, 4, 10) == str
+
+        str = """
+        begin
+            if foo
+            elseif baz
+            elseif (
+                a ||
+                b
+            ) && c
+            elseif bar
+            else
+            end
+        end"""
+        @test fmt(str_, 4, 9) == str
+        @test fmt(str_, 4, 1) == str
+    end
+
 end

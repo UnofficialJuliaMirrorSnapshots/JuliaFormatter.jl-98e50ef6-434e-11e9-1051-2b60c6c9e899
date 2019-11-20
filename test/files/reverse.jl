@@ -48,18 +48,16 @@ unwrapquote(x) = x
 unwrapquote(x::QuoteNode) = x.value
 
 is_literal_getproperty(ex) =
-    (iscall(ex, Base, :getproperty) ||
-     iscall(ex, Core, :getfield) || iscall(ex, Base, :getfield)) &&
-    ex.args[3] isa Union{QuoteNode,Integer}
+    (
+     iscall(ex, Base, :getproperty) ||
+     iscall(ex, Core, :getfield) || iscall(ex, Base, :getfield)
+    ) && ex.args[3] isa Union{QuoteNode,Integer}
 
 function instrument_getproperty!(ir, v, ex)
     is_literal_getproperty(ex) ?
-    (ir[v] = xcall(
-        Zygote,
-        :literal_getproperty,
-        ex.args[2],
-        Val(unwrapquote(ex.args[3])),
-    )) :
+    (
+     ir[v] = xcall(Zygote, :literal_getproperty, ex.args[2], Val(unwrapquote(ex.args[3])))
+    ) :
     ex
 end
 
@@ -79,13 +77,15 @@ is_literal_iterate(ex) =
 
 function instrument_iterate!(ir, v, ex)
     is_literal_iterate(ex) ?
-    (ir[v] = xcall(
-        Zygote,
-        :literal_indexed_iterate,
-        ex.args[2],
-        Val(unwrapquote(ex.args[3])),
-        ex.args[4:end]...,
-    )) :
+    (
+     ir[v] = xcall(
+         Zygote,
+         :literal_indexed_iterate,
+         ex.args[2],
+         Val(unwrapquote(ex.args[3])),
+         ex.args[4:end]...,
+     )
+    ) :
     ex
 end
 
@@ -106,14 +106,15 @@ function instrument_global!(ir, v, ex)
     if istrackable(ex)
         ir[v] = xcall(Zygote, :unwrap, QuoteNode(ex), ex)
     else
-        ir[v] = prewalk(ex) do x
-            istrackable(x) || return x
-            insert!(
-                ir,
-                v,
-                stmt(xcall(Zygote, :unwrap, QuoteNode(x), x), type = exprtype(x)),
-            )
-        end
+        ir[v] =
+            prewalk(ex) do x
+                istrackable(x) || return x
+                insert!(
+                    ir,
+                    v,
+                    stmt(xcall(Zygote, :unwrap, QuoteNode(x), x), type = exprtype(x)),
+                )
+            end
     end
 end
 
@@ -147,18 +148,17 @@ function record_branches!(ir::IR)
     return ir, brs
 end
 
-ignored_f(f) =
-    f in (
-        GlobalRef(Base, :not_int),
-        GlobalRef(Core.Intrinsics, :not_int),
-        GlobalRef(Core, :(===)),
-        GlobalRef(Core, :apply_type),
-        GlobalRef(Core, :typeof),
-        GlobalRef(Core, :throw),
-        GlobalRef(Base, :kwerr),
-        GlobalRef(Core, :kwfunc),
-        GlobalRef(Core, :isdefined),
-    )
+ignored_f(f) = f in (
+    GlobalRef(Base, :not_int),
+    GlobalRef(Core.Intrinsics, :not_int),
+    GlobalRef(Core, :(===)),
+    GlobalRef(Core, :apply_type),
+    GlobalRef(Core, :typeof),
+    GlobalRef(Core, :throw),
+    GlobalRef(Base, :kwerr),
+    GlobalRef(Core, :kwfunc),
+    GlobalRef(Core, :isdefined),
+)
 ignored_f(ir, f) = ignored_f(f)
 ignored_f(ir, f::Variable) = ignored_f(get(ir, f, nothing))
 
@@ -256,7 +256,7 @@ function adjointcfg(pr::Primal)
         rb = block(ir, b.id)
         for i = 1:length(preds)
             cond = i == length(preds) ? nothing :
-                   push!(rb, xcall(Base, :(!==), alpha(pr.branches[b.id]), BranchNumber(i)))
+                push!(rb, xcall(Base, :(!==), alpha(pr.branches[b.id]), BranchNumber(i)))
             branch!(rb, preds[i].id, unless = cond)
         end
         if !isempty(branches(b)) && branches(b)[end] == IRTools.unreachable
@@ -295,7 +295,10 @@ function adjoint(pr::Primal)
             if haskey(pr.pullbacks, v)
                 g = push!(
                     rb,
-                    stmt(Expr(:call, alpha(pr.pullbacks[v]), grad(v)), line = b[v].line),
+                    stmt(
+                        Expr(:call, alpha(pr.pullbacks[v]), grad(v)),
+                        line = b[v].line,
+                    ),
                 )
                 for (i, x) in enumerate(ex.args)
                     x isa Variable || continue
